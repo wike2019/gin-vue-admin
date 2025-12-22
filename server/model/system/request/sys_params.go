@@ -5,6 +5,7 @@ import (
 	"time"
 )
 
+// SysParamsSearch System parameters search request structure
 type SysParamsSearch struct {
 	StartCreatedAt *time.Time `json:"startCreatedAt" form:"startCreatedAt"`
 	EndCreatedAt   *time.Time `json:"endCreatedAt" form:"endCreatedAt"`

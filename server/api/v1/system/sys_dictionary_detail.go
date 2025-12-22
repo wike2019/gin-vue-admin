@@ -1,5 +1,13 @@
 package system
 
+// 字典详情管理API层
+// 设计说明：
+// 1. 树形结构支持：提供树形结构查询，支持层级字典数据
+// 2. 多种查询方式：支持按ID、类型、父级ID等多种查询方式
+// 3. 路径查询：提供路径查询功能，便于展示完整层级
+// 4. 类型转换：手动进行字符串到uint的转换，保证类型安全
+// 5. 好处：功能完整、查询灵活、类型安全
+
 import (
 	"strconv"
 
@@ -12,6 +20,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// DictionaryDetailApi 字典详情API结构体
 type DictionaryDetailApi struct{}
 
 // CreateSysDictionaryDetail
@@ -149,7 +158,12 @@ func (s *DictionaryDetailApi) GetSysDictionaryDetailList(c *gin.Context) {
 	}, "获取成功", c)
 }
 
-// GetDictionaryTreeList
+// GetDictionaryTreeList 获取字典详情树形结构
+// 设计说明：
+// 1. 类型转换：手动将字符串转换为uint，进行类型校验
+// 2. 参数验证：先检查参数是否为空，再检查格式是否正确
+// 3. 树形结构：返回树形结构数据，便于前端展示层级关系
+// 4. 好处：类型安全、参数验证完整、数据结构清晰
 // @Tags      SysDictionaryDetail
 // @Summary   获取字典详情树形结构
 // @Security  ApiKeyAuth
@@ -165,6 +179,8 @@ func (s *DictionaryDetailApi) GetDictionaryTreeList(c *gin.Context) {
 		return
 	}
 
+	// 手动进行类型转换，确保类型安全
+	// 使用ParseUint解析为uint64，再转换为uint，保证数值范围正确
 	var id uint
 	if idUint64, err := strconv.ParseUint(sysDictionaryID, 10, 32); err != nil {
 		response.FailWithMessage("字典ID格式错误", c)

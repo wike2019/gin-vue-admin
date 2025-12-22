@@ -33,6 +33,7 @@ type ChangePasswordReq struct {
 	NewPassword string `json:"newPassword"` // 新密码
 }
 
+// ResetPassword Reset password request structure
 type ResetPassword struct {
 	ID       uint   `json:"ID" form:"ID"`
 	Password string `json:"password" form:"password" gorm:"comment:用户登录密码"` // 用户登录密码
@@ -49,6 +50,7 @@ type SetUserAuthorities struct {
 	AuthorityIds []uint `json:"authorityIds"` // 角色ID
 }
 
+// ChangeUserInfo Change user info request structure
 type ChangeUserInfo struct {
 	ID           uint                  `gorm:"primarykey"`                                                                           // 主键ID
 	NickName     string                `json:"nickName" gorm:"default:系统用户;comment:用户昵称"`                                            // 用户昵称
@@ -60,6 +62,7 @@ type ChangeUserInfo struct {
 	Authorities  []system.SysAuthority `json:"-" gorm:"many2many:sys_user_authority;"`
 }
 
+// GetUserList Get user list request structure
 type GetUserList struct {
 	common.PageInfo
 	Username string `json:"username" form:"username"`

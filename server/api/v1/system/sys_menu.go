@@ -15,7 +15,30 @@ import (
 
 type AuthorityMenuApi struct{}
 
-// GetMenu
+// GetMenu 获取用户动态路由接口
+// 设计要点：
+// 1. 权限过滤：根据用户角色获取对应的菜单，实现权限控制
+// 2. 动态路由：返回用户有权限访问的菜单，前端根据此动态生成路由
+// 3. 空值处理：如果用户没有菜单权限，返回空数组而非 nil
+// 4. 树形结构：返回的菜单是树形结构，便于前端直接渲染
+//
+// 为什么这么写：
+// - 权限过滤：只返回用户有权限的菜单，实现细粒度权限控制
+// - 动态路由：前端根据返回的菜单动态生成路由，无需硬编码
+// - 空值处理：返回空数组而非 nil，避免前端空指针异常
+// - 树形结构：前端可以直接渲染树形菜单，无需再次处理
+//
+// 工作流程：
+// 1. 从 JWT token 获取用户角色ID
+// 2. 根据角色ID查询用户有权限的菜单
+// 3. 构建树形结构的菜单数据
+// 4. 返回菜单数据
+//
+// 好处：
+// - 安全性：只返回用户有权限的菜单，防止越权访问
+// - 灵活性：动态路由支持灵活的权限配置
+// - 用户体验：前端可以直接使用，无需额外处理
+//
 // @Tags      AuthorityMenu
 // @Summary   获取用户动态路由
 // @Security  ApiKeyAuth
@@ -24,15 +47,29 @@ type AuthorityMenuApi struct{}
 // @Success   200   {object}  response.Response{data=systemRes.SysMenusResponse,msg=string}  "获取用户动态路由,返回包括系统菜单详情列表"
 // @Router    /menu/getMenu [post]
 func (a *AuthorityMenuApi) GetMenu(c *gin.Context) {
-	menus, err := menuService.GetMenuTree(utils.GetUserAuthorityId(c))
+	// 步骤1：从 JWT token 获取用户角色ID
+	// 设计原因：根据用户角色获取对应的菜单，实现权限控制
+	authorityId := utils.GetUserAuthorityId(c)
+	
+	// 步骤2：调用服务层获取用户菜单树
+	// service 层会：
+	// 1. 根据角色ID查询角色关联的菜单
+	// 2. 构建树形结构的菜单数据
+	// 3. 返回菜单树
+	menus, err := menuService.GetMenuTree(authorityId)
 	if err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
 		response.FailWithMessage("获取失败", c)
 		return
 	}
+	
+	// 步骤3：空值处理 - 如果用户没有菜单权限，返回空数组
+	// 设计原因：避免前端空指针异常，统一返回格式
+	// 好处：前端无需额外判断 nil，直接使用即可
 	if menus == nil {
 		menus = []system.SysMenu{}
 	}
+	
 	response.OkWithDetailed(systemRes.SysMenusResponse{Menus: menus}, "获取成功", c)
 }
 

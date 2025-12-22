@@ -6,6 +6,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Response Common API response structure
 type Response struct {
 	Code int         `json:"code"`
 	Data interface{} `json:"data"`

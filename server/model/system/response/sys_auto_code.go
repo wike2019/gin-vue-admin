@@ -1,13 +1,16 @@
 package response
 
+// Db Database response structure
 type Db struct {
 	Database string `json:"database" gorm:"column:database"`
 }
 
+// Table Table response structure
 type Table struct {
 	TableName string `json:"tableName" gorm:"column:table_name"`
 }
 
+// Column Column response structure
 type Column struct {
 	DataType      string `json:"dataType" gorm:"column:data_type"`
 	ColumnName    string `json:"columnName" gorm:"column:column_name"`

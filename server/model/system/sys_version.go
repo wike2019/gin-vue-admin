@@ -5,7 +5,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
-// 版本管理 结构体  SysVersion
+// SysVersion System version management structure
 type SysVersion struct {
 	global.GVA_MODEL
 	VersionName *string `json:"versionName" form:"versionName" gorm:"comment:版本名称;column:version_name;size:255;" binding:"required"`                           //版本名称

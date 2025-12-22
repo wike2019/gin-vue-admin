@@ -9,10 +9,31 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// init 注册工具
+// 设计思路：使用init函数自动注册，确保工具在系统启动时可用
+// 好处：简化注册流程，避免遗漏
 func init() {
 	RegisterTool(&RequirementAnalyzer{})
 }
 
+// RequirementAnalyzer 需求分析器
+// 
+// 设计目的：
+// 1. 智能需求解构：将用户的自然语言需求转换为结构化的模块设计
+// 2. 模块架构设计：自动确定需要多少个模块及各模块功能
+// 3. 字段智能推导：为每个模块自动设计详细字段
+// 4. 生成AI Prompt：为AI生成详细的分析指导Prompt
+//
+// 核心价值：
+// - 降低门槛：用户只需描述需求，无需了解技术细节
+// - 提高效率：自动完成需求分析和模块设计
+// - 保证质量：基于最佳实践生成模块设计
+// - 流程起点：作为整个MCP工具链的入口，提供分析基础
+//
+// 为什么是首选工具：
+// - 提供需求分析的基础，其他工具依赖分析结果
+// - 帮助AI理解用户需求，做出正确的决策
+// - 生成结构化的模块设计，便于后续工具使用
 type RequirementAnalyzer struct{}
 
 // RequirementAnalysisRequest 需求分析请求
@@ -92,8 +113,21 @@ func (t *RequirementAnalyzer) Handle(ctx context.Context, request mcp.CallToolRe
 }
 
 // analyzeRequirement 分析用户需求 - 专注于AI需求传递
+// 
+// 设计思路：不进行实际的需求分析，而是生成详细的AI Prompt
+// 为什么这样设计：
+// 1. 职责分离：本工具负责生成Prompt，AI负责实际分析
+// 2. 灵活性：让AI根据具体情况进行分析，更智能
+// 3. 可扩展性：可以轻松更新Prompt模板，无需修改代码
+//
+// 好处：
+// 1. 简单高效：不需要复杂的NLP分析逻辑
+// 2. 灵活性强：Prompt可以随时调整，适应不同场景
+// 3. 质量保证：基于最佳实践设计的Prompt，确保分析质量
 func (t *RequirementAnalyzer) analyzeRequirement(userRequirement string) (*RequirementAnalysisResponse, error) {
 	// 生成AI提示词 - 这是唯一功能
+	// 为什么只生成Prompt：将分析工作交给AI，利用AI的理解能力
+	// 好处：AI可以理解复杂的自然语言需求，生成更准确的分析结果
 	aiPrompt := t.generateAIPrompt(userRequirement)
 
 	return &RequirementAnalysisResponse{
@@ -102,6 +136,24 @@ func (t *RequirementAnalyzer) analyzeRequirement(userRequirement string) (*Requi
 }
 
 // generateAIPrompt 生成AI提示词 - 智能分析需求并确定模块结构
+// 
+// 设计思路：构建结构化的Prompt，引导AI进行系统性的需求分析
+// Prompt结构：
+// 1. 用户原始需求：提供分析的基础
+// 2. 核心任务：明确AI的角色和任务
+// 3. 分析步骤：提供系统性的分析框架
+// 4. 设计原则：提供专业的设计指导
+// 5. 输出要求：明确期望的输出格式
+//
+// 为什么这样设计：
+// 1. 系统性：提供完整的分析框架，确保不遗漏关键点
+// 2. 专业性：基于系统架构师的最佳实践
+// 3. 可操作性：提供具体的分析步骤和输出要求
+//
+// 好处：
+// 1. 质量保证：基于最佳实践，确保分析质量
+// 2. 一致性：所有分析都遵循相同的框架，结果一致
+// 3. 完整性：涵盖需求分析的所有关键方面
 func (t *RequirementAnalyzer) generateAIPrompt(userRequirement string) string {
 	prompt := fmt.Sprintf(`# 智能需求分析与模块设计任务
 

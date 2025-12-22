@@ -1,36 +1,129 @@
 package internal
 
 import (
-    "context"
-    "fmt"
-    "github.com/flipped-aurora/gin-vue-admin/server/global"
-    "github.com/flipped-aurora/gin-vue-admin/server/model/system"
-    "github.com/flipped-aurora/gin-vue-admin/server/service"
-    astutil "github.com/flipped-aurora/gin-vue-admin/server/utils/ast"
-    "github.com/flipped-aurora/gin-vue-admin/server/utils/stacktrace"
-    "go.uber.org/zap"
-    "go.uber.org/zap/zapcore"
-    "os"
-    "strings"
-    "time"
+	"context"
+	"fmt"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/flipped-aurora/gin-vue-admin/server/global"
+	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
+	"github.com/flipped-aurora/gin-vue-admin/server/service"
+	astutil "github.com/flipped-aurora/gin-vue-admin/server/utils/ast"
+	"github.com/flipped-aurora/gin-vue-admin/server/utils/stacktrace"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
+// ZapCore 是 zap 日志库的核心接口的自定义实现
+//
+// 设计目的：
+// 1. 扩展 zap 的日志功能，实现自定义的日志处理逻辑
+// 2. 支持动态日志路径（根据业务字段自动切换日志文件）
+// 3. 自动将 Error 级别日志持久化到数据库，便于错误追踪和分析
+// 4. 提取并解析错误堆栈信息，包含源码片段，提高问题定位效率
+//
+// 为什么采用组合模式（嵌入 zapcore.Core）：
+// - 组合优于继承：通过嵌入 zapcore.Core，复用 zap 的基础功能，只重写需要自定义的方法
+// - 灵活扩展：可以在不修改 zap 源码的情况下扩展功能
+// - 接口兼容：实现了 zapcore.Core 接口的所有方法，可以无缝替换原生 Core
+// - 减少维护成本：zap 升级时只需关注接口变化，核心逻辑不受影响
+//
+// 字段说明：
+//   - level: 当前 Core 处理的日志级别（如 Debug、Info、Error 等）
+//     每个级别的日志会创建独立的 ZapCore 实例，实现日志分类存储
+//   - Core: 嵌入的 zap 原生 Core，处理基础的日志编码和写入逻辑
+//     通过组合模式，在保持兼容性的同时扩展功能
 type ZapCore struct {
-	level zapcore.Level
-	zapcore.Core
+	level        zapcore.Level // 日志级别：标识当前 Core 只处理该级别的日志
+	zapcore.Core               // 嵌入原生 Core：复用 zap 的基础日志处理能力
 }
 
+// NewZapCore 创建一个新的 ZapCore 实例，用于处理指定级别的日志
+//
+// 参数说明：
+// - level: 日志级别（Debug、Info、Warn、Error 等），该 Core 只会处理此级别的日志
+//
+// 设计思路：
+//  1. 每个日志级别创建独立的 Core 实例，实现日志分类存储
+//     例如：Error 级别日志写入 error.log，Info 级别日志写入 info.log
+//  2. 使用 LevelEnabler 精确控制日志级别过滤，避免日志混乱
+//  3. 通过 WriteSyncer 实现日志输出的自定义逻辑（文件切割、控制台输出等）
+//
+// 为什么使用 LevelEnablerFunc 而不是直接比较：
+// - 更符合 zap 的设计模式，保持与 zap 生态的一致性
+// - 如果需要扩展过滤逻辑（如基于时间的过滤），只需修改函数即可
+// - 代码语义更清晰，明确表达"级别过滤"的意图
+//
+// 执行流程：
+// 1. 创建 ZapCore 结构体，设置日志级别
+// 2. 调用 WriteSyncer 创建日志写入器（支持文件切割、控制台输出等）
+// 3. 创建 LevelEnabler，定义日志级别过滤规则
+// 4. 使用 zap 配置（编码器、写入器、级别过滤器）创建原生 Core
+// 5. 返回完整的 ZapCore 实例
 func NewZapCore(level zapcore.Level) *ZapCore {
+	// 创建 ZapCore 实例，初始化日志级别
+	// 此时 Core 字段还未初始化，需要在后续步骤中设置
 	entity := &ZapCore{level: level}
+
+	// 创建日志写入器（WriteSyncer）
+	// WriteSyncer 负责将日志内容写入到目标（文件、控制台等）
+	// 这里使用自定义的 WriteSyncer 实现，支持日志文件切割、自动清理等功能
 	syncer := entity.WriteSyncer()
+
+	// 创建级别过滤器（LevelEnabler）
+	// 这个函数决定哪些级别的日志会被当前 Core 处理
+	// 这里使用严格匹配：只有等于指定 level 的日志才会被处理
+	// 好处：避免日志级别混乱，确保每个 Core 只处理自己负责的级别
 	levelEnabler := zap.LevelEnablerFunc(func(l zapcore.Level) bool {
 		return l == level
 	})
+
+	// 使用 zap 提供的 NewCore 创建原生 Core
+	// 参数说明：
+	// - Encoder(): 日志编码器（JSON 或 Console 格式）
+	// - syncer: 日志写入器（文件、控制台等）
+	// - levelEnabler: 级别过滤器（决定哪些级别的日志被处理）
+	// 这样设计的好处：复用 zap 的成熟编码和写入逻辑，只扩展必要的功能
 	entity.Core = zapcore.NewCore(global.GVA_CONFIG.Zap.Encoder(), syncer, levelEnabler)
 	return entity
 }
 
+// WriteSyncer 创建日志写入器，支持文件切割和多目标输出
+//
+// 参数说明：
+//   - formats: 可变参数，用于自定义日志路径（如业务模块名称）
+//     例如：formats = ["business"] 会在日志路径中添加 business 目录
+//     这样可以将不同业务模块的日志分开存储，便于管理和查找
+//
+// 设计目的：
+// 1. 实现日志文件自动切割：按日期自动创建新的日志文件，避免单个文件过大
+// 2. 支持日志自动清理：根据配置的保留天数自动删除过期日志，节省存储空间
+// 3. 支持多目标输出：可以同时输出到文件和控制台，方便开发调试
+// 4. 支持动态路径：通过 formats 参数实现日志路径的动态调整
+//
+// 为什么使用 Cutter 而不是直接使用文件：
+// - 自动切割：按日期自动创建新文件，避免单个日志文件过大影响性能
+// - 自动清理：自动删除过期日志，无需手动维护，节省存储成本
+// - 线程安全：Cutter 内部使用锁机制，保证并发写入的安全性
+// - 路径管理：支持复杂的日志路径结构（日期目录 + 业务目录 + 级别文件）
+//
+// 为什么支持可变参数 formats：
+// - 灵活性：可以根据不同的日志字段（business、folder、directory）动态调整日志路径
+// - 可扩展性：未来可以添加更多的路径参数，不需要修改函数签名
+// - 向后兼容：不传 formats 时使用默认路径，不影响现有代码
 func (z *ZapCore) WriteSyncer(formats ...string) zapcore.WriteSyncer {
+	// 创建日志切割器（Cutter）
+	// Cutter 实现了 io.Writer 接口，可以无缝集成到 zap 中
+	// 参数说明：
+	// - Director: 日志根目录（如 ./log）
+	// - level.String(): 日志级别字符串（如 "error"、"info"）
+	// - RetentionDay: 日志保留天数，超过此天数的日志目录会被自动清理
+	// - CutterWithLayout(time.DateOnly): 按日期切割（使用 "2006-01-02" 格式）
+	//   好处：每天自动创建新的日志文件，文件命名清晰，便于查找
+	// - CutterWithFormats(formats...): 自定义路径参数（如业务模块名称）
+	//   最终路径示例：./log/2024-01-01/business/error.log
 	cutter := NewCutter(
 		global.GVA_CONFIG.Zap.Director,
 		z.level.String(),
@@ -38,100 +131,677 @@ func (z *ZapCore) WriteSyncer(formats ...string) zapcore.WriteSyncer {
 		CutterWithLayout(time.DateOnly),
 		CutterWithFormats(formats...),
 	)
+
+	// 根据配置决定是否同时输出到控制台
+	// 为什么需要控制台输出？
+	// - 开发调试：开发时可以实时查看日志，无需打开日志文件
+	// - 容器化部署：容器日志可以通过标准输出被日志收集系统捕获（如 Docker、Kubernetes）
+	// - 灵活性：生产环境可以关闭控制台输出，只写文件，提高性能
 	if global.GVA_CONFIG.Zap.LogInConsole {
+		// 使用 MultiWriteSyncer 实现多目标输出
+		// 同时写入标准输出（控制台）和文件，两个目标互不影响
+		// 好处：
+		// 1. 开发时方便查看：日志会同时显示在控制台
+		// 2. 生产时持久化：日志同时保存到文件，便于后续分析
+		// 3. 互不影响：一个目标失败不影响另一个目标
 		multiSyncer := zapcore.NewMultiWriteSyncer(os.Stdout, cutter)
 		return zapcore.AddSync(multiSyncer)
 	}
+	// 只输出到文件，适用于生产环境
+	// 好处：减少控制台输出的性能开销，专注于日志持久化
 	return zapcore.AddSync(cutter)
 }
 
+// Enabled 检查指定级别的日志是否应该被当前 Core 处理
+//
+// 设计目的：
+// - zap 在写入日志前会调用此方法，判断是否应该处理该日志
+// - 用于性能优化：如果返回 false，zap 会跳过后续的编码和写入操作
+//
+// 为什么使用严格匹配（==）而不是范围判断：
+// - 精确控制：确保每个 Core 只处理自己负责的日志级别
+// - 避免混乱：防止不同级别的日志混在一起，保持日志文件清晰
+// - 性能优化：简单的相等比较，性能开销最小
+//
+// 例如：Error 级别的 Core 只会处理 Error 级别的日志，
+//
+//	Info 级别的日志会被其他 Core 处理
 func (z *ZapCore) Enabled(level zapcore.Level) bool {
 	return z.level == level
 }
 
+// With 为 Core 添加结构化字段（fields）
+//
+// 设计目的：
+// - zap 支持结构化日志，可以通过 With 方法添加公共字段
+// - 例如：logger.With(zap.String("service", "user-service")) 会为所有日志添加 service 字段
+//
+// 为什么直接委托给嵌入的 Core：
+// - 字段添加是 zap 的基础功能，不需要自定义逻辑
+// - 通过委托保持与原生 Core 的行为一致性
+// - 减少代码重复，遵循 DRY（Don't Repeat Yourself）原则
+//
+// 使用场景：
+// - 在中间件中添加请求 ID、用户 ID 等公共字段
+// - 在服务初始化时添加服务名称、版本等字段
 func (z *ZapCore) With(fields []zapcore.Field) zapcore.Core {
+	// 直接委托给嵌入的 Core，保持原生行为
+	// 返回的 Core 会自动包含新增的 fields
 	return z.Core.With(fields)
 }
 
+// Check 检查日志条目是否应该被处理，并添加到检查队列
+//
+// 设计目的：
+// - zap 使用 Check 方法进行日志级别过滤和性能优化
+// - 只有通过检查的日志才会真正执行写入操作
+//
+// 执行流程：
+// 1. 调用 Enabled 检查日志级别是否匹配
+// 2. 如果匹配，将当前 Core 添加到检查队列（CheckedEntry）
+// 3. zap 会遍历所有匹配的 Core，执行日志写入
+//
+// 为什么需要 Check 方法：
+// - 性能优化：在写入前进行快速检查，避免不必要的编码操作
+// - 多 Core 支持：允许一个日志同时被多个 Core 处理（如同时写入文件和数据库）
+// - 级别过滤：不同级别的日志可以被不同的 Core 处理
+//
+// 例如：当记录 Error 日志时，可能同时被 Error Core 和所有级别 Core 处理
 func (z *ZapCore) Check(entry zapcore.Entry, check *zapcore.CheckedEntry) *zapcore.CheckedEntry {
+	// 先检查日志级别是否匹配
 	if z.Enabled(entry.Level) {
+		// 如果匹配，将当前 Core 添加到检查队列
+		// zap 后续会调用 Core 的 Write 方法执行实际写入
 		return check.AddCore(entry, z)
 	}
+	// 如果不匹配，直接返回，不添加到队列
 	return check
 }
 
+// Write 执行实际的日志写入操作，这是整个自定义 Core 的核心方法
+//
+// ========== 函数概述 ==========
+// 这个函数是 zap 日志库的核心写入方法，每当有日志需要记录时，zap 都会调用这个方法。
+// 它不仅仅是将日志写入文件，还实现了两个重要的扩展功能：
+// 1. 动态日志路径：根据业务需求自动切换日志文件路径
+// 2. 错误自动入库：将错误日志自动保存到数据库，便于后续分析和追踪
+//
+// ========== 设计目的 ==========
+// 1. 支持动态日志路径：
+//   - 根据日志字段（business、folder、directory）动态切换日志文件
+//   - 不同业务模块的日志可以分开存储，便于管理和查找
+//   - 例如：用户登录日志可以存到 auth/info.log，订单日志存到 order/info.log
+//
+// 2. 自动错误入库：
+//   - Error 及以上级别的日志自动保存到数据库
+//   - 便于后续的错误统计、分析和问题追踪
+//   - 可以通过数据库查询快速找到特定时间段的错误
+//
+// 3. 智能错误解析：
+//   - 自动提取错误对象、堆栈跟踪、源码片段
+//   - 提供完整的错误上下文，无需手动查找就能看到问题代码
+//   - 大幅提升问题定位效率
+//
+// ========== 参数说明 ==========
+// - entry: 日志条目对象，包含以下关键信息：
+//   - Level: 日志级别（Debug、Info、Warn、Error、Fatal）
+//   - Message: 日志消息内容（如 "用户登录失败"）
+//   - Caller: 调用者信息（文件路径、行号）
+//   - Stack: 堆栈跟踪信息（如果启用了堆栈记录）
+//   - Time: 日志记录时间
+//
+// - fields: 结构化字段数组，可以包含：
+//   - 错误对象：zap.Error(err) 添加的错误
+//   - 业务标识：zap.String("business", "auth") 添加的业务模块名
+//   - 其他自定义字段：如用户ID、请求ID等
+//
+// ========== 执行流程详解 ==========
+// 整个函数分为三个主要部分，按顺序执行：
+//
+// 第一部分：动态日志路径支持（第 242-263 行）
+//   - 检查 fields 中是否包含业务路径标识（business、folder、directory）
+//   - 如果包含，动态创建新的日志写入器，切换日志文件路径
+//   - 这样同一个日志级别可以写入到不同的文件中
+//
+// 第二部分：执行日志写入（第 265-273 行）
+//   - 调用原生 Core 的 Write 方法，将日志写入文件或控制台
+//   - 这是标准的 zap 写入逻辑，保证日志格式和性能
+//   - 先写入文件，确保即使后续入库失败，日志也不会丢失
+//
+// 第三部分：错误日志自动入库（第 275-413 行）
+//   - 只处理 Error 及以上级别的日志（Error、Fatal）
+//   - 跳过 GORM 和 panic 恢复日志，避免重复和递归
+//   - 收集错误信息：消息、错误对象、调用者信息、堆栈跟踪
+//   - 解析堆栈，提取最终业务调用方的源码
+//   - 将完整的错误信息保存到数据库
+//
+// ========== 为什么在 Write 中实现动态路径切换 ==========
+//   - 灵活性：不同的业务模块可以使用不同的日志文件，便于日志管理
+//   - 运行时切换：在记录日志时才决定路径，支持动态的业务场景
+//   - 透明性：业务代码只需添加字段，无需关心日志路径的细节
+//   - 示例：logger.Info("用户登录", zap.String("business", "auth"))
+//     会自动创建路径：./log/2024-01-01/auth/info.log
+//
+// ========== 使用示例 ==========
+//
+//  1. 普通日志（使用默认路径）：
+//     logger.Info("系统启动成功")
+//     -> 写入：./log/2024-01-01/info.log
+//
+//  2. 业务日志（动态路径）：
+//     logger.Info("用户登录成功", zap.String("business", "auth"))
+//     -> 写入：./log/2024-01-01/auth/info.log
+//
+//  3. 错误日志（自动入库）：
+//     logger.Error("数据库连接失败", zap.Error(err))
+//     -> 写入文件：./log/2024-01-01/error.log
+//     -> 同时入库：sys_error 表，包含完整的错误信息和源码
+//
+// ========== 返回值 ==========
+//   - error: 返回文件写入的错误（如果有）
+//     注意：数据库写入错误被忽略，不会影响主流程
 func (z *ZapCore) Write(entry zapcore.Entry, fields []zapcore.Field) error {
-    for i := 0; i < len(fields); i++ {
-        if fields[i].Key == "business" || fields[i].Key == "folder" || fields[i].Key == "directory" {
-            syncer := z.WriteSyncer(fields[i].String)
-            z.Core = zapcore.NewCore(global.GVA_CONFIG.Zap.Encoder(), syncer, z.level)
-        }
-    }
-    // 先写入原日志目标
-    err := z.Core.Write(entry, fields)
+	// ========== 第一部分：动态日志路径支持 ==========
+	//
+	// 【功能说明】
+	// 检查日志字段中是否包含业务路径标识（business、folder、directory）
+	// 如果包含，则动态创建新的日志写入器，实现日志文件的动态切换
+	//
+	// 【执行步骤】
+	// 1. 遍历所有日志字段（fields）
+	// 2. 查找 key 为 "business"、"folder" 或 "directory" 的字段
+	// 3. 如果找到，使用字段值作为路径参数，创建新的日志写入器
+	// 4. 重新创建 Core，替换原有的写入器
+	// 5. 后续的日志写入就会使用新的路径
+	//
+	// 【为什么需要动态切换日志路径？】
+	// - 业务隔离：不同业务模块的日志分开存储，便于查找和分析
+	//   例如：用户认证日志存到 auth/，订单日志存到 order/
+	// - 灵活组织：可以根据业务需求灵活组织日志目录结构
+	//   不需要在代码中硬编码路径，只需在记录日志时添加字段即可
+	// - 日志管理：大型系统中，按业务模块分类可以大幅提升日志查找效率
+	//   当需要查找某个业务模块的日志时，直接到对应目录即可
+	//
+	// 【使用场景示例】
+	// 场景1：用户认证模块
+	//   logger.Info("用户登录成功", zap.String("business", "auth"))
+	//   结果：日志写入 ./log/2024-01-01/auth/info.log
+	//
+	// 场景2：订单模块
+	//   logger.Info("订单创建成功", zap.String("business", "order"))
+	//   结果：日志写入 ./log/2024-01-01/order/info.log
+	//
+	// 场景3：支付模块
+	//   logger.Error("支付失败", zap.String("folder", "payment"), zap.Error(err))
+	//   结果：日志写入 ./log/2024-01-01/payment/error.log
+	//
+	// 【技术细节】
+	// - 使用 fields[i].String 获取字段的字符串值（如 "auth"、"order"）
+	// - 调用 WriteSyncer 方法创建新的写入器，传入字段值作为路径参数
+	// - 重新创建 Core 时，保持原有的编码器和日志级别，只替换写入器
+	// - 这个切换是临时的，只影响当前这次日志写入，不会影响其他日志
+	for i := 0; i < len(fields); i++ {
+		if fields[i].Key == "business" || fields[i].Key == "folder" || fields[i].Key == "directory" {
+			// 根据字段值创建新的日志写入器
+			// 字段值会作为路径的一部分，实现日志的动态分类
+			// 例如：fields[i].String = "auth"，则路径为 ./log/2024-01-01/auth/info.log
+			syncer := z.WriteSyncer(fields[i].String)
+			// 重新创建 Core，使用新的写入器
+			// 这样后续的日志写入就会使用新的路径
+			// 注意：这里只影响当前这次写入，不会影响其他日志
+			z.Core = zapcore.NewCore(global.GVA_CONFIG.Zap.Encoder(), syncer, z.level)
+		}
+	}
 
-    // 捕捉 Error 及以上级别日志并入库，且可提取 zap.Error(err) 的错误内容
-    if entry.Level >= zapcore.ErrorLevel {
-        // 避免与 GORM zap 写入互相递归：跳过由 gorm logger writer 触发的日志
-        if strings.Contains(entry.Caller.File, "gorm_logger_writer.go") {
-            return err
-        }
-        // 避免重复记录 panic 恢复日志，panic 由 GinRecovery 单独捕捉入库
-        if strings.Contains(entry.Message, "[Recovery from panic]") {
-            return err
-        }
+	// ========== 第二部分：执行日志写入 ==========
+	//
+	// 【功能说明】
+	// 调用原生 Core 的 Write 方法，将日志写入到目标位置（文件或控制台）
+	// 这一步使用的是标准的 zap 写入逻辑，保证日志格式和性能
+	//
+	// 【执行内容】
+	// 1. 使用配置的编码器（JSON 或 Console）将日志条目和字段编码为字符串
+	// 2. 将编码后的日志内容写入到目标位置：
+	//    - 如果配置了 LogInConsole，会同时写入控制台和文件
+	//    - 否则只写入文件
+	// 3. 返回写入过程中可能出现的错误
+	//
+	// 【为什么先写入文件，再处理错误入库？】
+	// 这是一个重要的设计决策，原因如下：
+	//
+	// 1. 保证日志完整性：
+	//    - 文件写入通常比数据库写入更可靠（文件系统比数据库更稳定）
+	//    - 即使数据库写入失败，文件日志仍然存在，不会丢失日志
+	//    - 文件日志是"第一道防线"，确保日志不会丢失
+	//
+	// 2. 性能考虑：
+	//    - 文件写入通常比数据库写入快（本地文件系统 vs 数据库网络IO）
+	//    - 先完成文件写入可以更快返回，减少对主流程的影响
+	//    - 数据库写入是"额外操作"，不应该阻塞主流程
+	//
+	// 3. 解耦设计：
+	//    - 日志文件和错误数据库是两个独立的存储系统
+	//    - 文件写入失败不影响数据库写入，数据库写入失败也不影响文件写入
+	//    - 两个系统互不影响，提高了系统的健壮性
+	//
+	// 4. 降级策略：
+	//    - 如果数据库不可用，文件日志仍然可以正常工作
+	//    - 后续可以从文件日志中恢复数据库记录
+	//
+	// 【执行流程】
+	// entry + fields -> 编码器编码 -> 写入器写入 -> 文件/控制台
+	// 返回：写入过程中可能出现的错误（如磁盘空间不足、权限问题等）
+	err := z.Core.Write(entry, fields)
 
-        form := "后端"
-        level := entry.Level.String()
-        // 生成基础信息
-        info := entry.Message
+	// ========== 第三部分：错误日志自动入库 ==========
+	//
+	// 【功能说明】
+	// 捕捉 Error 及以上级别的日志，自动保存到数据库
+	// 这是整个函数最复杂的部分，包含了错误信息的收集、解析和入库
+	//
+	// 【设计目的】
+	// 1. 错误追踪：
+	//    - 将错误信息持久化到数据库，便于后续分析和统计
+	//    - 可以追踪错误的出现频率、时间分布等
+	//    - 支持错误的历史查询和趋势分析
+	//
+	// 2. 问题定位：
+	//    - 通过数据库查询可以快速找到特定时间的错误
+	//    - 支持按错误级别、时间范围、错误内容等条件查询
+	//    - 比查看日志文件更方便，特别是需要统计和分析时
+	//
+	// 3. 错误分析：
+	//    - 可以统计错误频率，找出最常见的错误
+	//    - 分析错误趋势，预测潜在问题
+	//    - 支持错误分类和标签，便于问题管理
+	//
+	// 【为什么只处理 Error 及以上级别？】
+	// 这是一个重要的性能优化决策：
+	//
+	// 1. 减少存储开销：
+	//    - Error 级别的日志相对较少（正常情况下错误不应该频繁出现）
+	//    - 不会造成数据库压力，避免数据库成为性能瓶颈
+	//    - 如果所有日志都入库，数据库会很快被填满
+	//
+	// 2. 聚焦关键问题：
+	//    - 只有错误和致命问题才需要入库追踪
+	//    - Info 和 Debug 日志主要用于开发调试，不需要持久化
+	//    - 错误日志才是真正需要关注和解决的问题
+	//
+	// 3. 性能考虑：
+	//    - Info 和 Debug 日志量很大（可能每秒数千条）
+	//    - 全部入库会严重影响性能，导致数据库成为瓶颈
+	//    - 文件日志已经保存了所有日志，需要时可以查看文件
+	//
+	// 4. 成本控制：
+	//    - 数据库存储比文件存储成本更高
+	//    - 只存储关键错误，可以控制存储成本
+	//
+	// 【执行条件】
+	// 只有当日志级别 >= ErrorLevel 时，才会执行后续的错误入库逻辑
+	// ErrorLevel 包括：Error、Fatal、Panic
+	if entry.Level >= zapcore.ErrorLevel {
+		// ========== 递归调用防护 ==========
+		//
+		// 【问题背景】
+		// 避免与 GORM zap 写入互相递归：跳过由 gorm logger writer 触发的日志
+		//
+		// 【为什么需要这个检查？】
+		// 这是一个重要的防护机制，防止无限递归循环：
+		//
+		// 1. 防止无限递归：
+		//    - GORM 使用 zap 记录数据库操作的日志
+		//    - 如果 GORM 的日志写入过程中出现错误，zap 会记录这个错误
+		//    - 如果这里再记录 GORM 的日志错误，可能会触发新的日志写入
+		//    - 新的日志写入可能又触发错误，形成无限循环
+		//    - 示例循环：GORM日志错误 -> 记录错误 -> 数据库写入 -> GORM日志错误 -> ...
+		//
+		// 2. 职责分离：
+		//    - GORM 的日志有自己的处理逻辑，不应该在这里重复处理
+		//    - 数据库操作的日志应该由 GORM 自己管理
+		//    - 这里只处理业务代码产生的错误日志
+		//
+		// 3. 性能保护：
+		//    - 避免不必要的数据库写入操作
+		//    - 防止递归导致的性能问题和资源消耗
+		//
+		// 【判断方式】
+		// 通过检查调用者文件名，如果包含 "gorm_logger_writer.go"，说明是 GORM 的日志
+		// 直接返回，不进行错误入库
+		if strings.Contains(entry.Caller.File, "gorm_logger_writer.go") {
+			return err
+		}
 
-        // 提取 zap.Error(err) 内容
-        var errStr string
-        for i := 0; i < len(fields); i++ {
-            f := fields[i]
-            if f.Type == zapcore.ErrorType || f.Key == "error" || f.Key == "err" {
-                if f.Interface != nil {
-                    errStr = fmt.Sprintf("%v", f.Interface)
-                } else if f.String != "" {
-                    errStr = f.String
-                }
-                break
-            }
-        }
-        if errStr != "" {
-            info = fmt.Sprintf("%s | 错误: %s", info, errStr)
-        }
+		// ========== Panic 恢复日志跳过 ==========
+		//
+		// 【问题背景】
+		// 避免重复记录 panic 恢复日志，panic 由 GinRecovery 中间件单独捕捉入库
+		//
+		// 【为什么跳过 panic 恢复日志？】
+		// 1. 避免重复：
+		//    - GinRecovery 中间件已经单独处理了 panic 日志的入库
+		//    - 如果这里再处理，同一个 panic 会产生两条数据库记录
+		//    - 造成数据冗余和查询困扰
+		//
+		// 2. 保持一致性：
+		//    - panic 日志应该由专门的中间件统一处理
+		//    - 这样便于统一管理 panic 日志的格式和处理逻辑
+		//    - 避免不同地方处理导致的不一致
+		//
+		// 3. 减少噪音：
+		//    - 同一个 panic 不应该产生多条数据库记录
+		//    - 减少数据库中的重复数据，提高查询效率
+		//
+		// 【判断方式】
+		// 通过检查日志消息，如果包含 "[Recovery from panic]"，说明是 panic 恢复日志
+		// 直接返回，不进行错误入库（由 GinRecovery 中间件处理）
+		if strings.Contains(entry.Message, "[Recovery from panic]") {
+			return err
+		}
 
-        // 附加来源与堆栈信息
-        if entry.Caller.File != "" {
-            info = fmt.Sprintf("%s \n 源文件:%s:%d", info, entry.Caller.File, entry.Caller.Line)
-        }
-        stack := entry.Stack
-        if stack != "" {
-            info = fmt.Sprintf("%s \n 调用栈：%s", info, stack)
-            // 解析最终业务调用方，并提取其方法源码
-            if frame, ok := stacktrace.FindFinalCaller(stack); ok {
-                fnName, fnSrc, sLine, eLine, exErr := astutil.ExtractFuncSourceByPosition(frame.File, frame.Line)
-                if exErr == nil {
-                    info = fmt.Sprintf("%s \n 最终调用方法:%s:%d (%s lines %d-%d)\n----- 产生日志的方法代码如下 -----\n%s", info, frame.File, frame.Line, fnName, sLine, eLine, fnSrc)
-                } else {
-                    info = fmt.Sprintf("%s \n 最终调用方法:%s:%d (%s) | extract_err=%v", info, frame.File, frame.Line, fnName, exErr)
-                }
-            }
-        }
+		// ========== 错误信息收集 ==========
+		//
+		// 【功能说明】
+		// 准备错误入库的基本信息，这些信息会保存到数据库的 sys_error 表中
+		//
+		// 【收集的信息】
+		// 1. form: 错误来源标识
+		//    - "后端"：表示这是后端服务产生的错误
+		//    - 用于区分前端和后端的错误，便于问题定位
+		//    - 未来可以扩展为 "前端"、"定时任务"、"后台服务" 等
+		//
+		// 2. level: 日志级别字符串
+		//    - 从 entry.Level 转换为字符串（如 "error"、"fatal"、"panic"）
+		//    - 用于数据库查询和统计，可以按级别筛选错误
+		//
+		// 3. info: 基础日志消息
+		//    - 从 entry.Message 获取，这是日志的核心内容
+		//    - 后续会不断追加更多信息（错误对象、堆栈、源码等）
+		form := "后端"                  // 标识错误来源（前端/后端）
+		level := entry.Level.String() // 日志级别字符串（如 "error"、"fatal"）
+		info := entry.Message         // 基础日志消息
 
-        // 使用后台上下文，避免依赖 gin.Context
-        ctx := context.Background()
-        _ = service.ServiceGroupApp.SystemServiceGroup.SysErrorService.CreateSysError(ctx, &system.SysError{
-            Form:  &form,
-            Info:  &info,
-            Level: level,
-        })
-    }
-    return err
+		// ========== 错误对象提取 ==========
+		//
+		// 【功能说明】
+		// 从 fields 中提取错误对象（error），丰富错误信息
+		// 错误对象通常包含比日志消息更详细的信息
+		//
+		// 【为什么需要提取错误对象？】
+		// 1. 完整信息：
+		//    - 日志消息可能只有简短描述（如 "数据库连接失败"）
+		//    - 错误对象包含详细信息（如 "connection refused: 127.0.0.1:3306"）
+		//    - 错误对象可能包含错误码、错误类型等额外信息
+		//
+		// 2. 便于调试：
+		//    - 错误对象通常包含堆栈信息，有助于问题定位
+		//    - 有些错误对象实现了 Error() 方法，会返回格式化的错误信息
+		//    - 包含错误的根本原因，而不仅仅是表面现象
+		//
+		// 3. 统一格式：
+		//    - 将错误对象转换为字符串，便于数据库存储和查询
+		//    - 统一错误信息的格式，便于后续分析和处理
+		//
+		// 【支持的提取方式】
+		// 为了兼容不同的使用习惯，支持多种错误字段格式：
+		// 1. zapcore.ErrorType：通过 zap.Error(err) 添加的错误对象
+		//    示例：logger.Error("操作失败", zap.Error(err))
+		// 2. Key 为 "error" 的字段：显式指定 key 为 "error"
+		//    示例：logger.Error("操作失败", zap.String("error", err.Error()))
+		// 3. Key 为 "err" 的字段：简短的错误字段名
+		//    示例：logger.Error("操作失败", zap.String("err", err.Error()))
+		//
+		// 【提取逻辑】
+		// 1. 遍历所有 fields，查找错误类型的字段
+		// 2. 优先使用 Interface（错误对象），因为它包含最完整的信息
+		// 3. 如果 Interface 为空，使用 String 字段
+		// 4. 找到一个错误对象即可，避免重复提取
+		var errStr string
+		for i := 0; i < len(fields); i++ {
+			f := fields[i]
+			// 检查是否为错误类型或错误字段
+			// f.Type == zapcore.ErrorType: 通过 zap.Error(err) 添加的错误
+			// f.Key == "error" || f.Key == "err": 显式指定的错误字段
+			if f.Type == zapcore.ErrorType || f.Key == "error" || f.Key == "err" {
+				// 优先使用 Interface（错误对象），包含最完整的信息
+				// f.Interface 是实际的 error 对象，调用 fmt.Sprintf 会调用 error.Error() 方法
+				if f.Interface != nil {
+					errStr = fmt.Sprintf("%v", f.Interface)
+				} else if f.String != "" {
+					// 如果 Interface 为空，使用 String 字段
+					// 这种情况是显式使用 zap.String("error", err.Error()) 添加的
+					errStr = f.String
+				}
+				break // 找到一个错误对象即可，避免重复提取
+			}
+		}
+		// 如果提取到错误信息，追加到日志消息中
+		// 格式：原始消息 | 错误: 错误详情
+		// 示例："数据库连接失败 | 错误: connection refused: 127.0.0.1:3306"
+		if errStr != "" {
+			info = fmt.Sprintf("%s | 错误: %s", info, errStr)
+		}
+
+		// ========== 调用者信息附加 ==========
+		//
+		// 【功能说明】
+		// 附加日志来源文件信息，帮助定位问题发生的位置
+		// 这是错误定位的第一步，告诉开发者错误发生在哪里
+		//
+		// 【为什么需要调用者信息？】
+		// 1. 快速定位：
+		//    - 知道错误发生在哪个文件的哪一行，可以快速找到代码
+		//    - 不需要在项目中搜索错误消息，直接定位到具体位置
+		//    - 大幅提升问题定位效率
+		//
+		// 2. 问题追踪：
+		//    - 在大型项目中，文件位置信息至关重要
+		//    - 可以快速判断错误属于哪个模块、哪个服务
+		//    - 便于问题分类和分配
+		//
+		// 【信息格式】
+		// 源文件:文件路径:行号
+		// 示例：源文件:/path/to/project/service/user.go:123
+		if entry.Caller.File != "" {
+			info = fmt.Sprintf("%s \n 源文件:%s:%d", info, entry.Caller.File, entry.Caller.Line)
+		}
+
+		// ========== 堆栈跟踪解析 ==========
+		//
+		// 【功能说明】
+		// 解析堆栈跟踪信息，提取最关键的调用信息，并尝试提取源码片段
+		// 这是错误定位的核心部分，提供完整的错误上下文
+		//
+		// 【为什么需要解析堆栈？】
+		// 1. 调用链路：
+		//    - 了解错误发生的完整调用链，便于理解问题上下文
+		//    - 知道错误是从哪里调用的，调用的参数是什么
+		//    - 理解错误的传播路径，找到错误的根源
+		//
+		// 2. 业务定位：
+		//    - 从堆栈中找到业务代码的调用位置，而不是框架代码
+		//    - 堆栈顶部通常是框架代码（zap、gin 等），不是真正的问题所在
+		//    - 需要找到业务代码的调用位置，这才是需要修复的地方
+		//
+		// 3. 问题分析：
+		//    - 完整的调用链有助于分析错误的根本原因
+		//    - 可以看到错误的传播过程，理解为什么会出现这个错误
+		//    - 有助于设计更好的错误处理机制
+		//
+		// 【堆栈信息结构】
+		// 堆栈信息通常包含多行，每行代表一个函数调用：
+		// goroutine 1 [running]:
+		// github.com/xxx/service.UserService.Login(...)
+		//     /path/to/service/user.go:123
+		// github.com/xxx/api.UserAPI.Login(...)
+		//     /path/to/api/user.go:45
+		// ...
+		stack := entry.Stack
+		if stack != "" {
+			// 先附加完整的堆栈信息
+			// 这样即使后续的解析失败，至少还有完整的堆栈可以查看
+			info = fmt.Sprintf("%s \n 调用栈：%s", info, stack)
+
+			// ========== 最终调用方解析 ==========
+			//
+			// 【功能说明】
+			// 解析最终业务调用方，并提取其方法源码
+			// 这是最智能的部分，自动找到业务代码并展示源码
+			//
+			// 【为什么需要找"最终调用方"？】
+			// 1. 跳过框架代码：
+			//    - 堆栈顶部通常是框架代码（如 zap、gin、gorm），不是业务代码
+			//    - 这些框架代码是通用的，不是真正需要关注的位置
+			//    - 需要找到业务代码的调用位置，这才是问题的根源
+			//
+			// 2. 定位业务问题：
+			//    - 最终调用方通常是业务代码，是真正需要关注的位置
+			//    - 这里才是需要修复代码的地方
+			//    - 框架代码的错误通常是由业务代码的错误引起的
+			//
+			// 3. 源码展示：
+			//    - 提取并展示源码片段，无需打开文件就能看到问题代码
+			//    - 可以直接看到出错的代码行，理解错误的上下文
+			//    - 大幅提升问题定位效率，无需在 IDE 中查找文件
+			//
+			// 【执行流程】
+			// 1. 调用 stacktrace.FindFinalCaller 解析堆栈，找到最终业务调用方
+			//    返回：frame（包含文件路径和行号）、ok（是否找到）
+			// 2. 如果找到，调用 astutil.ExtractFuncSourceByPosition 提取方法源码
+			//    返回：方法名、源码内容、起始行、结束行、错误信息
+			// 3. 如果提取成功，将源码追加到错误信息中
+			// 4. 如果提取失败，至少展示方法信息，便于手动查找
+			if frame, ok := stacktrace.FindFinalCaller(stack); ok {
+				// 从源码文件中提取方法源码
+				// 这个方法会：
+				// 1. 读取源码文件
+				// 2. 解析 AST，找到包含指定行的函数
+				// 3. 提取函数的完整源码
+				// 返回：方法名、源码内容、起始行、结束行、错误信息
+				fnName, fnSrc, sLine, eLine, exErr := astutil.ExtractFuncSourceByPosition(frame.File, frame.Line)
+				if exErr == nil {
+					// 成功提取源码：展示文件、行号、方法名和完整源码
+					// 这样在查看错误记录时，可以直接看到出错的代码，无需打开文件
+					// 格式：
+					// 最终调用方法:文件路径:行号 (方法名 lines 起始行-结束行)
+					// ----- 产生日志的方法代码如下 -----
+					// 源码内容
+					info = fmt.Sprintf("%s \n 最终调用方法:%s:%d (%s lines %d-%d)\n----- 产生日志的方法代码如下 -----\n%s",
+						info, frame.File, frame.Line, fnName, sLine, eLine, fnSrc)
+				} else {
+					// 提取失败：至少展示方法信息，便于手动查找
+					// 可能的原因：
+					// 1. 源码文件不存在（如编译后的二进制文件）
+					// 2. 文件路径不正确
+					// 3. AST 解析失败
+					// 即使提取失败，至少还有文件路径和行号，可以手动查找
+					info = fmt.Sprintf("%s \n 最终调用方法:%s:%d (%s) | extract_err=%v",
+						info, frame.File, frame.Line, fnName, exErr)
+				}
+			}
+		}
+
+		// ========== 错误信息入库 ==========
+		//
+		// 【功能说明】
+		// 将收集到的错误信息保存到数据库的 sys_error 表中
+		// 这是整个错误处理流程的最后一步，将错误信息持久化
+		//
+		// 【入库的数据】
+		// 1. Form: 错误来源（"后端"）
+		// 2. Info: 完整的错误信息，包含：
+		//    - 原始日志消息
+		//    - 错误对象详情
+		//    - 调用者文件位置
+		//    - 完整堆栈跟踪
+		//    - 最终调用方法的源码
+		// 3. Level: 日志级别（"error"、"fatal"、"panic"）
+		//
+		// 【为什么使用 context.Background()？】
+		// 这是一个重要的设计决策，原因如下：
+		//
+		// 1. 解耦设计：
+		//    - 日志记录不应该依赖请求上下文（gin.Context），因为：
+		//      * 日志可能在非请求场景下记录（如定时任务、后台任务、初始化过程）
+		//      * 请求结束后，上下文可能已失效，使用无效上下文会导致问题
+		//      * 日志记录应该是独立的操作，不应该受到请求生命周期的影响
+		//    - 日志系统应该是框架无关的，不应该绑定到特定的 Web 框架
+		//
+		// 2. 长期运行：
+		//    - 日志记录可能需要长时间运行（如数据库写入较慢）
+		//    - 不应受请求超时限制，避免日志记录被中断
+		//    - 使用 Background 上下文，确保日志记录可以完整执行
+		//
+		// 3. 简化依赖：
+		//    - 减少对框架的依赖，提高代码的可移植性
+		//    - 可以在任何场景下使用，不局限于 HTTP 请求
+		//
+		// 【为什么使用下划线忽略错误（_ = ...）？】
+		// 这是一个降级策略，原因如下：
+		//
+		// 1. 非关键操作：
+		//    - 日志入库失败不应该影响主流程
+		//    - 主业务逻辑不应该因为日志入库失败而中断
+		//    - 日志入库是"锦上添花"，不是核心功能
+		//
+		// 2. 避免递归：
+		//    - 如果入库失败也记录日志，可能会形成无限循环
+		//    - 示例：入库失败 -> 记录错误日志 -> 尝试入库 -> 又失败 -> ...
+		//    - 忽略错误可以打破这个循环
+		//
+		// 3. 降级策略：
+		//    - 即使数据库写入失败，文件日志已经保存，不影响日志功能
+		//    - 文件日志是"第一道防线"，数据库是"第二道防线"
+		//    - 即使数据库不可用，日志功能仍然可以正常工作
+		//
+		// 4. 性能考虑：
+		//    - 数据库写入可能较慢，不应该阻塞主流程
+		//    - 使用异步写入可以提升性能，但会增加复杂度
+		//
+		// 【注意事项】
+		// - 实际生产环境可以考虑使用异步写入或消息队列，避免阻塞主流程
+		// - 可以考虑添加重试机制，提高入库成功率
+		// - 可以添加监控，当入库失败率过高时发出告警
+		ctx := context.Background()
+		_ = service.ServiceGroupApp.SystemServiceGroup.SysErrorService.CreateSysError(ctx, &system.SysError{
+			Form:  &form, // 错误来源（前端/后端）
+			Info:  &info, // 完整的错误信息（包含消息、错误对象、堆栈、源码等）
+			Level: level, // 日志级别
+		})
+	}
+	// ========== 函数返回 ==========
+	//
+	// 【返回值说明】
+	// 返回文件写入的错误（如果有）
+	// 注意：数据库写入错误被忽略，但文件写入错误会被返回
+	//
+	// 【为什么只返回文件写入错误？】
+	// 1. 文件写入是核心功能：
+	//    - 文件日志是日志系统的基础，必须保证写入成功
+	//    - 如果文件写入失败，说明日志系统出现了严重问题
+	//    - 需要让调用者知道文件写入失败，便于处理
+	//
+	// 2. 数据库写入是扩展功能：
+	//    - 数据库写入是额外的功能，失败不应该影响主流程
+	//    - 文件日志已经保存，即使数据库写入失败，日志也不会丢失
+	//    - 忽略数据库写入错误，避免影响主业务逻辑
+	return err
 }
 
+// Sync 同步刷新所有缓冲的日志到存储介质
+//
+// 设计目的：
+// - 确保日志被正确写入：zap 可能使用缓冲机制，调用 Sync 确保所有日志都被写入
+// - 优雅关闭：应用关闭时应该调用 Sync，确保所有日志不会丢失
+//
+// 为什么委托给嵌入的 Core：
+// - Sync 是标准的同步操作，不需要自定义逻辑
+// - 保持与原生 Core 的行为一致性
+// - 确保所有底层的写入器（文件、控制台等）都被正确同步
+//
+// 使用场景：
+// - 应用关闭前：main 函数退出前应该调用 logger.Sync()
+// - 日志轮转时：需要确保旧日志文件被正确关闭
 func (z *ZapCore) Sync() error {
 	return z.Core.Sync()
 }

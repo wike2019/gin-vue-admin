@@ -5,7 +5,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
-// 错误日志 结构体  SysError
+// SysError System error log structure
 type SysError struct {
 	global.GVA_MODEL
 	Form     *string `json:"form" form:"form" gorm:"comment:错误来源;column:form;type:text;" binding:"required"` //错误来源

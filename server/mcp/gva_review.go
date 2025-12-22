@@ -11,9 +11,23 @@ import (
 )
 
 // GVAReviewer GVA代码审查工具
+// 
+// 设计目的：
+// 1. 代码质量检查：验证生成的代码是否满足用户需求
+// 2. 完整性分析：检查是否遗漏了关联关系、交互功能等
+// 3. 优化建议：提供针对性的代码优化建议
+// 4. 生成Prompt：为AI生成优化代码的指导Prompt
+//
+// 核心价值：
+// - 质量保证：确保生成的代码满足需求
+// - 发现遗漏：识别缺失的功能和关联关系
+// - 指导优化：提供具体的优化建议和Prompt
+// - 流程闭环：在代码生成后提供审查，形成完整的开发流程
 type GVAReviewer struct{}
 
 // init 注册工具
+// 设计思路：使用init函数自动注册，确保工具可用
+// 好处：简化注册流程，避免遗漏
 func init() {
 	RegisterTool(&GVAReviewer{})
 }
@@ -78,8 +92,25 @@ func (g *GVAReviewer) New() mcp.Tool {
 }
 
 // Handle 处理审查请求
+// 
+// 设计思路：
+// 1. 参数验证：严格验证输入参数，确保数据格式正确
+// 2. 简化分析：不进行复杂的代码分析，直接生成优化Prompt
+// 3. 结构化输出：返回结构化的审查结果，便于AI使用
+//
+// 为什么简化分析：
+// - 代码分析需要读取文件内容，复杂度高
+// - AI可以基于需求和文件列表自行分析
+// - 生成优化Prompt让AI进行深度分析更灵活
+//
+// 好处：
+// 1. 性能：避免读取大量文件，提高响应速度
+// 2. 灵活性：让AI根据具体情况进行分析，更智能
+// 3. 可扩展性：后续可以增强分析逻辑，不影响现有流程
 func (g *GVAReviewer) Handle(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-	// 获取用户需求
+	// 步骤1：获取并验证用户需求
+	// 为什么需要用户需求：用于对比生成的代码是否满足需求
+	// 好处：提供审查的基准，确保审查有针对性
 	userRequirementData, ok := request.GetArguments()["userRequirement"]
 	if !ok {
 		return nil, errors.New("参数错误：userRequirement 必须提供")
@@ -90,7 +121,9 @@ func (g *GVAReviewer) Handle(ctx context.Context, request mcp.CallToolRequest) (
 		return nil, errors.New("参数错误：userRequirement 必须是字符串类型")
 	}
 
-	// 获取生成的文件列表
+	// 步骤2：获取并验证生成的文件列表
+	// 为什么需要文件列表：知道生成了哪些文件，便于分析完整性
+	// 好处：可以检查是否遗漏了必要的文件
 	generatedFilesData, ok := request.GetArguments()["generatedFiles"]
 	if !ok {
 		return nil, errors.New("参数错误：generatedFiles 必须提供")
@@ -101,18 +134,29 @@ func (g *GVAReviewer) Handle(ctx context.Context, request mcp.CallToolRequest) (
 		return nil, errors.New("参数错误：generatedFiles 必须是JSON字符串")
 	}
 
-	// 解析JSON字符串为字符串数组
+	// 步骤3：解析JSON字符串为字符串数组
+	// 为什么使用JSON字符串：MCP协议中复杂类型需要序列化传输
+	// 好处：支持传输数组类型，保持协议兼容性
 	var generatedFiles []string
 	err := json.Unmarshal([]byte(generatedFilesStr), &generatedFiles)
 	if err != nil {
 		return nil, fmt.Errorf("解析generatedFiles失败: %v", err)
 	}
 
+	// 验证文件列表不为空
+	// 为什么需要验证：空列表无法进行审查
+	// 好处：提前发现无效输入，提供清晰的错误信息
 	if len(generatedFiles) == 0 {
 		return nil, errors.New("参数错误：generatedFiles 不能为空")
 	}
 
-	// 直接生成调整提示，不进行复杂分析
+	// 步骤4：生成调整提示
+	// 设计思路：不进行复杂的代码分析，直接生成优化Prompt
+	// 为什么这样设计：
+	// 1. 性能考虑：避免读取大量文件进行分析
+	// 2. 灵活性：让AI根据具体情况进行分析更智能
+	// 3. 可扩展性：后续可以增强分析逻辑
+	// 好处：快速响应，让AI进行深度分析
 	adjustmentPrompt := g.generateAdjustmentPrompt(userRequirement, generatedFiles)
 
 	// 构建简化的审查详情
@@ -140,17 +184,46 @@ func (g *GVAReviewer) Handle(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 // generateAdjustmentPrompt 生成调整代码的提示
+// 
+// 设计思路：构建结构化的Prompt，包含需求、文件列表和优化指导
+// 为什么生成Prompt而不是直接分析：
+// 1. 灵活性：让AI根据具体情况进行分析，更智能
+// 2. 可扩展性：可以轻松添加新的优化指导
+// 3. 性能：避免读取大量文件进行分析
+//
+// Prompt结构：
+// 1. 用户原始需求：提供审查的基准
+// 2. 生成的文件列表：让AI知道有哪些文件
+// 3. 优化指导：提供具体的优化方向和注意事项
+//
+// 好处：
+// 1. 完整性：包含所有必要信息，便于AI理解
+// 2. 指导性：提供明确的优化方向，避免AI盲目分析
+// 3. 可操作性：包含具体的操作建议，便于执行
 func (g *GVAReviewer) generateAdjustmentPrompt(userRequirement string, generatedFiles []string) string {
 	var prompt strings.Builder
 
+	// 构建Prompt标题和用户需求
+	// 为什么包含用户需求：让AI知道原始需求，便于对比分析
+	// 好处：提供审查的基准，确保优化方向正确
 	prompt.WriteString("🔧 **代码调整指导 Prompt：**\n\n")
 	prompt.WriteString(fmt.Sprintf("**用户的原始需求为：** %s\n\n", userRequirement))
+	
+	// 列出生成的文件
+	// 为什么列出文件：让AI知道生成了哪些文件，便于分析完整性
+	// 好处：可以检查是否遗漏了必要的文件
 	prompt.WriteString("**经过GVA生成后的文件有如下内容：**\n")
 	for _, file := range generatedFiles {
 		prompt.WriteString(fmt.Sprintf("- %s\n", file))
 	}
 	prompt.WriteString("\n")
 
+	// 提供优化指导
+	// 为什么提供指导：明确优化方向，避免AI盲目分析
+	// 好处：
+	// 1. 全面性：涵盖代码质量、关联关系、交互功能等各个方面
+	// 2. 规范性：强调遵循GVA框架规范
+	// 3. 操作性：提供具体的操作建议（如使用menu_lister、api_lister等）
 	prompt.WriteString("**请帮我优化和完善代码，确保：**\n")
 	prompt.WriteString("1. 代码完全满足用户的原始需求\n")
 	prompt.WriteString("2. 完善模块间的关联关系，确保数据一致性\n")
@@ -159,6 +232,13 @@ func (g *GVAReviewer) generateAdjustmentPrompt(userRequirement string, generated
 	prompt.WriteString("5. 遵循GVA框架的开发规范和最佳实践\n")
 	prompt.WriteString("6. 确保前后端功能完整对接\n")
 	prompt.WriteString("7. 添加必要的错误处理和数据验证\n\n")
+	
+	// 提供具体的操作指导
+	// 为什么需要这些指导：告诉AI如何使用其他MCP工具
+	// 好处：
+	// 1. 工具使用：指导AI正确使用menu_lister、api_lister等工具
+	// 2. 避免错误：提醒不要随意删除import，避免破坏代码
+	// 3. 完整性：指导如何创建缺失的菜单和API
 	prompt.WriteString("8. 如果需要vue路由跳转，请使用 menu_lister获取完整路由表，并且路由跳转使用 router.push({\"name\":从menu_lister中获取的name})\n\n")
 	prompt.WriteString("9. 如果当前所有的vue页面内容无法满足需求，则自行书写vue文件，并且调用 menu_creator创建菜单记录\n\n")
 	prompt.WriteString("10. 如果需要API调用，请使用 api_lister获取api表，根据需求调用对应接口\n\n")

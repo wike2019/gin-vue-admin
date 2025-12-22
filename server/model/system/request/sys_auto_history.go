@@ -5,6 +5,7 @@ import (
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 )
 
+// SysAutoHistoryCreate System auto code history create request structure
 type SysAutoHistoryCreate struct {
 	Table            string            // 表名
 	Package          string            // 模块名/插件名
@@ -40,6 +41,7 @@ func (r *SysAutoHistoryCreate) Create() model.SysAutoCodeHistory {
 	return entity
 }
 
+// SysAutoHistoryRollBack System auto code history rollback request structure
 type SysAutoHistoryRollBack struct {
 	common.GetById
 	DeleteApi   bool `json:"deleteApi" form:"deleteApi"`     // 是否删除接口

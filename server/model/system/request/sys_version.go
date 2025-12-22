@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// SysVersionSearch System version search request structure
 type SysVersionSearch struct {
 	CreatedAtRange []time.Time `json:"createdAtRange" form:"createdAtRange[]"`
 	VersionName    *string     `json:"versionName" form:"versionName"`
@@ -13,7 +14,7 @@ type SysVersionSearch struct {
 	request.PageInfo
 }
 
-// ExportVersionRequest 导出版本请求结构体
+// ExportVersionRequest Export version request structure
 type ExportVersionRequest struct {
 	VersionName string `json:"versionName" binding:"required"` // 版本名称
 	VersionCode string `json:"versionCode" binding:"required"` // 版本号
@@ -23,7 +24,7 @@ type ExportVersionRequest struct {
 	DictIds     []uint `json:"dictIds"`                        // 选中的字典ID列表
 }
 
-// ImportVersionRequest 导入版本请求结构体
+// ImportVersionRequest Import version request structure
 type ImportVersionRequest struct {
 	VersionInfo      VersionInfo            `json:"version" binding:"required"` // 版本信息
 	ExportMenu       []system.SysBaseMenu   `json:"menus"`                      // 菜单数据，直接复用SysBaseMenu
@@ -31,7 +32,7 @@ type ImportVersionRequest struct {
 	ExportDictionary []system.SysDictionary `json:"dictionaries"`               // 字典数据，直接复用SysDictionary
 }
 
-// VersionInfo 版本信息结构体
+// VersionInfo Version information structure
 type VersionInfo struct {
 	Name        string `json:"name" binding:"required"`        // 版本名称
 	Code        string `json:"code" binding:"required"`        // 版本号

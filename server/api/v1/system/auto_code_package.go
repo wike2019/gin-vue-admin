@@ -29,10 +29,13 @@ func (a *AutoCodePackageApi) Create(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	// 安全检查：防止路径穿越攻击
+	// 检查包名中是否包含路径分隔符或相对路径符号
+	// 好处：防止恶意包名导致文件系统被访问，保证安全性
 	if strings.Contains(info.PackageName, "\\") || strings.Contains(info.PackageName, "/") || strings.Contains(info.PackageName, "..") {
 		response.FailWithMessage("包名不合法", c)
 		return
-	} // PackageName可能导致路径穿越的问题 / 和 \ 都要防止
+	}
 	err := autoCodePackageService.Create(c.Request.Context(), &info)
 	if err != nil {
 		global.GVA_LOG.Error("创建失败!", zap.Error(err))

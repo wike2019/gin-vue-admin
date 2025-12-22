@@ -6,6 +6,7 @@ import (
 	"errors"
 )
 
+// JSONMap JSON map type for database storage
 type JSONMap map[string]interface{}
 
 func (m JSONMap) Value() (driver.Value, error) {
@@ -35,6 +36,7 @@ func (m *JSONMap) Scan(value interface{}) error {
 	return nil
 }
 
+// TreeNode Tree node interface for generic tree structure
 type TreeNode[T any] interface {
 	GetChildren() []T
 	SetChildren(children T)

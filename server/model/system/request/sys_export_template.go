@@ -6,6 +6,7 @@ import (
 	"time"
 )
 
+// SysExportTemplateSearch System export template search request structure
 type SysExportTemplateSearch struct {
 	system.SysExportTemplate
 	StartCreatedAt *time.Time `json:"startCreatedAt" form:"startCreatedAt"`

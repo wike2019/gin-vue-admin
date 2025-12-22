@@ -5,7 +5,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
-// 参数 结构体  SysParams
+// SysParams System parameters structure
 type SysParams struct {
 	global.GVA_MODEL
 	Name  string `json:"name" form:"name" gorm:"column:name;comment:参数名称;" binding:"required"`   //参数名称

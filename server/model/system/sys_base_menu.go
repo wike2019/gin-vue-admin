@@ -4,6 +4,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
+// SysBaseMenu System base menu structure
 type SysBaseMenu struct {
 	global.GVA_MODEL
 	MenuLevel     uint                   `json:"-"`
@@ -20,6 +21,7 @@ type SysBaseMenu struct {
 	MenuBtn       []SysBaseMenuBtn       `json:"menuBtn"`
 }
 
+// Meta Menu meta information structure
 type Meta struct {
 	ActiveName     string `json:"activeName" gorm:"comment:高亮菜单"`
 	KeepAlive      bool   `json:"keepAlive" gorm:"comment:是否缓存"`                 // 是否缓存
@@ -30,6 +32,7 @@ type Meta struct {
 	TransitionType string `json:"transitionType" gorm:"comment:路由切换动画"`        // 路由切换动画
 }
 
+// SysBaseMenuParameter System base menu parameter structure
 type SysBaseMenuParameter struct {
 	global.GVA_MODEL
 	SysBaseMenuID uint

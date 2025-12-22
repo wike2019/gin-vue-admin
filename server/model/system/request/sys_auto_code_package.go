@@ -5,6 +5,7 @@ import (
 	model "github.com/flipped-aurora/gin-vue-admin/server/model/system"
 )
 
+// SysAutoCodePackageCreate System auto code package create request structure
 type SysAutoCodePackageCreate struct {
 	Desc        string `json:"desc" example:"描述"`
 	Label       string `json:"label" example:"展示名"`

@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
+// Login Login interface
 type Login interface {
 	GetUsername() string
 	GetNickname() string
@@ -17,6 +18,7 @@ type Login interface {
 
 var _ Login = new(SysUser)
 
+// SysUser System user structure
 type SysUser struct {
 	global.GVA_MODEL
 	UUID          uuid.UUID      `json:"uuid" gorm:"index;comment:用户UUID"`                                                                   // 用户UUID

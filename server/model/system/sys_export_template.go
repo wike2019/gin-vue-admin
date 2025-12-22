@@ -5,7 +5,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
-// 导出模板 结构体  SysExportTemplate
+// SysExportTemplate System export template structure
 type SysExportTemplate struct {
 	global.GVA_MODEL
 	DBName       string         `json:"dbName" form:"dbName" gorm:"column:db_name;comment:数据库名称;"`               //数据库名称
@@ -19,6 +19,7 @@ type SysExportTemplate struct {
 	JoinTemplate []JoinTemplate `json:"joinTemplate" form:"joinTemplate" gorm:"foreignKey:TemplateID;references:TemplateID;comment:关联"`
 }
 
+// JoinTemplate Export template join relationship structure
 type JoinTemplate struct {
 	global.GVA_MODEL
 	TemplateID string `json:"templateID" form:"templateID" gorm:"column:template_id;comment:模板标识"`
@@ -31,6 +32,7 @@ func (JoinTemplate) TableName() string {
 	return "sys_export_template_join"
 }
 
+// Condition Export template condition structure
 type Condition struct {
 	global.GVA_MODEL
 	TemplateID string `json:"templateID" form:"templateID" gorm:"column:template_id;comment:模板标识"`

@@ -5,18 +5,76 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// SysRouter 系统配置路由结构体
+// 为什么使用结构体：
+//  1. 遵循面向对象设计，将系统配置相关的路由初始化逻辑封装在结构体方法中
+//  2. 代码组织更清晰，便于维护和扩展
+//  3. 符合 Go 语言的最佳实践，与项目中其他路由结构体保持一致
+//
+// 好处：
+//  1. 职责清晰：系统配置相关的路由集中管理，易于查找和维护
+//  2. 易于扩展：后续新增系统配置相关路由时，只需在同一个结构体中添加方法
+//  3. 统一风格：与项目中的 UserRouter、MenuRouter 等保持一致的设计模式
 type SysRouter struct{}
 
+// InitSystemRouter 初始化系统配置相关路由
+// 参数 Router：路由组，通常是 "/api/v1" 下的子路由组
+// 为什么这么写：
+//  1. 将系统配置相关的所有路由集中管理，便于维护和查找
+//  2. 通过路由分组，统一添加中间件，避免重复代码
+//  3. 区分需要记录操作和不需要记录操作的路由，优化性能和存储
+//
+// 好处：
+//  1. 代码组织清晰：系统配置相关路由集中在一个方法中，易于理解
+//  2. 中间件复用：通过路由组统一添加中间件，避免在每个路由上重复配置
+//  3. 性能优化：只对重要的修改操作记录日志，减少不必要的存储开销
 func (s *SysRouter) InitSystemRouter(Router *gin.RouterGroup) {
+	// 创建需要记录操作的路由组
+	// 为什么使用 OperationRecord 中间件：
+	//   - 系统配置修改和系统重启都是关键操作，需要审计追踪
+	//   - 记录操作日志便于问题排查、安全监控、合规审计
+	//   - 系统配置变更可能导致系统行为变化，必须完整记录变更历史
+	// 好处：
+	//   1. 可追溯性：可以追踪谁在什么时候修改了系统配置或重启了服务
+	//   2. 问题排查：出现问题时可以根据日志快速定位配置变更历史
+	//   3. 安全审计：满足安全审计和合规要求，记录所有敏感操作
+	//   4. 责任追踪：明确操作责任人，便于问题追责和权限管理
 	sysRouter := Router.Group("system").Use(middleware.OperationRecord())
+
+	// 创建不需要记录操作的路由组
+	// 为什么单独创建一个路由组：
+	//   - 查询类操作通常频繁且不需要审计记录
+	//   - 系统信息查询操作访问频率高，如果都记录会产生大量日志
+	//   - 查询操作不改变系统状态，审计价值相对较低
+	// 好处：
+	//   1. 性能优化：查询操作不记录日志，减少系统负担和数据库写入压力
+	//   2. 存储优化：避免查询日志占用大量存储空间，降低存储成本
+	//   3. 日志清晰：只记录关键操作（配置修改、服务重启），便于后续分析和排查
+	//   4. 响应速度：减少不必要的日志记录开销，提高查询接口的响应速度
 	sysRouterWithoutRecord := Router.Group("system")
 
 	{
-		sysRouter.POST("setSystemConfig", systemApi.SetSystemConfig) // 设置配置文件内容
-		sysRouter.POST("reloadSystem", systemApi.ReloadSystem)       // 重启服务
+		// 需要记录操作的修改类接口
+		// 为什么这些接口需要记录：
+		//   - setSystemConfig：修改系统配置是重要操作，配置变更会影响整个系统行为
+		//     必须记录谁、何时、修改了什么配置，便于回滚和问题排查
+		//   - reloadSystem：重启服务是高风险操作，可能导致服务中断
+		//     必须完整记录操作历史，用于故障分析和责任追踪
+		sysRouter.POST("setSystemConfig", systemApi.SetSystemConfig) // 设置配置文件内容 - 配置变更需要审计追踪
+		sysRouter.POST("reloadSystem", systemApi.ReloadSystem)       // 重启服务 - 高风险操作，必须完整记录
 	}
 	{
-		sysRouterWithoutRecord.POST("getSystemConfig", systemApi.GetSystemConfig) // 获取配置文件内容
-		sysRouterWithoutRecord.POST("getServerInfo", systemApi.GetServerInfo)     // 获取服务器信息
+		// 不需要记录操作的查询类接口
+		// 为什么这些接口不记录：
+		//   - getSystemConfig：查询配置内容是只读操作，不改变系统状态
+		//     访问频率可能很高，记录会产生大量无意义的日志
+		//   - getServerInfo：获取服务器信息是查询操作，不涉及数据修改
+		//     通常用于监控和诊断，频繁查询不需要每次都记录
+		// 好处：
+		//   1. 减少日志量：查询操作频繁但无审计价值，不记录可大幅减少日志量
+		//   2. 提高性能：避免每次查询都写入数据库，提升系统整体性能
+		//   3. 降低成本：减少存储空间和数据库写入压力，降低运维成本
+		sysRouterWithoutRecord.POST("getSystemConfig", systemApi.GetSystemConfig) // 获取配置文件内容 - 查询操作，不记录日志
+		sysRouterWithoutRecord.POST("getServerInfo", systemApi.GetServerInfo)     // 获取服务器信息 - 查询操作，不记录日志
 	}
 }

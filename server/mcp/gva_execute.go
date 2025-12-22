@@ -18,11 +18,25 @@ import (
 )
 
 // 注册工具
+// 设计思路：使用init函数自动注册，确保工具在系统启动时可用
+// 好处：简化注册流程，避免手动注册导致的遗漏
 func init() {
 	RegisterTool(&GVAExecutor{})
 }
 
-// GVAExecutor GVA代码生成器
+// GVAExecutor GVA代码生成执行器
+// 
+// 设计目的：
+// 1. 自动化代码生成：根据执行计划自动创建包、模块、字典等
+// 2. 批量处理：支持一次性创建多个模块，提高效率
+// 3. 智能验证：在执行前验证执行计划的完整性和正确性
+// 4. 路径管理：自动构建和返回生成文件的路径信息
+//
+// 核心价值：
+// - 提高开发效率：自动化重复的代码生成工作
+// - 减少错误：通过验证机制避免配置错误
+// - 统一规范：确保生成的代码符合GVA框架规范
+// - 可追溯性：返回生成的文件路径，便于后续操作
 type GVAExecutor struct{}
 
 // ExecuteRequest 执行请求结构
@@ -413,16 +427,41 @@ func (g *GVAExecutor) Handle(ctx context.Context, request mcp.CallToolRequest) (
 }
 
 // validateExecutionPlan 验证执行计划的完整性
+// 
+// 设计思路：采用分层验证，从基本字段到复杂结构，逐步验证
+// 为什么需要验证：
+// 1. 提前发现问题：在执行前发现配置错误，避免部分执行后失败
+// 2. 提供清晰的错误信息：明确指出哪个字段有问题，便于修复
+// 3. 确保数据一致性：验证字段间的关联关系是否正确
+//
+// 验证层次：
+// 1. 基本字段验证（包名、类型等）
+// 2. 字段一致性验证（packageType和template是否一致）
+// 3. 条件字段验证（needCreatedPackage为true时packageInfo必须存在）
+// 4. 模块信息验证（字段完整性、类型有效性等）
+// 5. 字段级验证（字段名、类型、关联关系等）
+//
+// 好处：
+// 1. 错误预防：在执行前发现所有问题
+// 2. 用户体验：提供清晰的错误提示
+// 3. 数据完整性：确保执行计划的所有必需信息都存在
 func (g *GVAExecutor) validateExecutionPlan(plan *ExecutionPlan) error {
-	// 验证基本字段
+	// 第一层：验证基本字段
+	// 为什么先验证基本字段：基本字段是其他验证的基础
+	// 好处：快速发现明显的配置错误
 	if plan.PackageName == "" {
 		return errors.New("packageName 不能为空")
 	}
+	// 验证包类型只能是package或plugin
+	// 为什么限制类型：只有这两种类型被支持，其他类型会导致错误
+	// 好处：提前发现类型错误，避免后续处理失败
 	if plan.PackageType != "package" && plan.PackageType != "plugin" {
 		return errors.New("packageType 必须是 'package' 或 'plugin'")
 	}
 
-	// 验证packageType和template字段的一致性
+	// 第二层：验证字段一致性
+	// 为什么需要验证一致性：packageType和template必须匹配，否则会导致路径错误
+	// 好处：确保包类型在整个执行计划中保持一致，避免路径构建错误
 	if plan.NeedCreatedPackage && plan.PackageInfo != nil {
 		if plan.PackageType != plan.PackageInfo.Template {
 			return errors.New("packageType 和 packageInfo.template 必须保持一致")
@@ -536,22 +575,32 @@ func (g *GVAExecutor) validateExecutionPlan(plan *ExecutionPlan) error {
 					}
 				}
 
-				// 验证 dataSource 字段配置
-				if field.DataSource != nil {
-					associationValue := field.DataSource.Association
-					// 当 association 为 2（一对多关联）时，强制修改 fieldType 为 array
-					if associationValue == 2 {
-						if field.FieldType != "array" {
-							global.GVA_LOG.Info(fmt.Sprintf("模块 %d 字段 %d：检测到一对多关联(association=2)，自动将 fieldType 从 '%s' 修改为 'array'", moduleIndex+1, i+1, field.FieldType))
-							moduleInfo.Fields[i].FieldType = "array"
-						}
-					}
-
-					// 验证 association 值的有效性
-					if associationValue != 1 && associationValue != 2 {
-						return fmt.Errorf("模块 %d 字段 %d 的 dataSource.association 必须是 1（一对一）或 2（一对多）", moduleIndex+1, i+1)
+			// 验证 dataSource 字段配置（模块关联配置）
+			// 设计思路：dataSource用于配置字段与其他表的关联关系
+			// 为什么需要这个配置：支持模块间的关联查询，如用户关联角色、订单关联商品等
+			// 好处：提供灵活的关联配置，支持复杂的业务场景
+			if field.DataSource != nil {
+				associationValue := field.DataSource.Association
+				// 自动修正字段类型：一对多关联必须使用array类型
+				// 为什么需要修正：一对多关联返回的是数组，必须使用array类型存储
+				// 好处：
+				// 1. 自动修正：避免用户配置错误
+				// 2. 数据一致性：确保字段类型与关联关系匹配
+				// 3. 友好提示：记录修正操作，便于用户了解变更
+				if associationValue == 2 {
+					if field.FieldType != "array" {
+						global.GVA_LOG.Info(fmt.Sprintf("模块 %d 字段 %d：检测到一对多关联(association=2)，自动将 fieldType 从 '%s' 修改为 'array'", moduleIndex+1, i+1, field.FieldType))
+						moduleInfo.Fields[i].FieldType = "array"
 					}
 				}
+
+				// 验证 association 值的有效性
+				// 为什么只支持1和2：1表示一对一，2表示一对多，这是GVA框架支持的关联类型
+				// 好处：提前发现配置错误，避免运行时失败
+				if associationValue != 1 && associationValue != 2 {
+					return fmt.Errorf("模块 %d 字段 %d 的 dataSource.association 必须是 1（一对一）或 2（一对多）", moduleIndex+1, i+1)
+				}
+			}
 			}
 
 			// 验证主键设置
@@ -584,6 +633,23 @@ func (g *GVAExecutor) validateExecutionPlan(plan *ExecutionPlan) error {
 }
 
 // executeCreation 执行创建操作
+// 
+// 设计思路：采用顺序执行，先创建依赖项（包、字典），再创建模块
+// 执行顺序：
+// 1. 构建路径信息（无论是否创建，都返回路径）
+// 2. 创建包（如果needCreatedPackage=true）
+// 3. 创建字典（如果needCreatedDictionaries=true，在模块创建前）
+// 4. 创建模块（如果needCreatedModules=true）
+//
+// 为什么这个顺序：
+// - 包是模块的容器，必须先创建
+// - 字典可能被模块字段引用，必须在模块创建前创建
+// - 模块创建时会自动生成API和菜单
+//
+// 好处：
+// 1. 依赖关系清晰：按依赖顺序创建，避免引用错误
+// 2. 容错性：即使部分创建失败，也返回已生成的路径信息
+// 3. 可追溯性：返回所有生成的文件路径，便于后续操作
 func (g *GVAExecutor) executeCreation(ctx context.Context, plan *ExecutionPlan) *ExecuteResponse {
 	result := &ExecuteResponse{
 		Success:        false,
@@ -591,50 +657,81 @@ func (g *GVAExecutor) executeCreation(ctx context.Context, plan *ExecutionPlan) 
 		GeneratedPaths: []string{}, // 初始化生成文件路径列表
 	}
 
-	// 无论如何都先构建目录结构信息，确保paths始终返回
+	// 步骤1：无论如何都先构建目录结构信息
+	// 为什么先构建路径：即使创建失败，用户也需要知道文件应该放在哪里
+	// 好处：
+	// 1. 提供参考：让用户知道目录结构
+	// 2. 容错性：创建失败时仍能返回路径信息
+	// 3. 便于手动创建：如果自动创建失败，用户可以手动创建
 	result.Paths = g.buildDirectoryStructure(plan)
 
 	// 记录预期生成的文件路径
+	// 为什么记录预期路径：让用户知道会生成哪些文件
+	// 好处：提供完整的文件列表，便于后续检查和操作
 	result.GeneratedPaths = g.collectExpectedFilePaths(plan)
 
+	// 如果不需要创建模块，只返回路径信息
+	// 为什么有这个分支：有些场景只需要路径信息，不需要实际创建
+	// 好处：支持只获取路径信息的场景，提高灵活性
 	if !plan.NeedCreatedModules {
 		result.Success = true
 		result.Message += "已列出当前功能所涉及的目录结构信息; 请在paths中查看; 并且在对应指定文件中实现相关的业务逻辑; "
 		return result
 	}
 
-	// 创建包（如果需要）
+	// 步骤2：创建包（如果需要）
+	// 为什么先创建包：包是模块的容器，模块必须在包内创建
+	// 好处：确保模块创建时有正确的包结构
 	if plan.NeedCreatedPackage && plan.PackageInfo != nil {
 		packageService := service.ServiceGroupApp.SystemServiceGroup.AutoCodePackage
 		err := packageService.Create(ctx, plan.PackageInfo)
 		if err != nil {
 			result.Message = fmt.Sprintf("创建包失败: %v", err)
 			// 即使创建包失败，也要返回paths信息
+			// 为什么：让用户知道应该在哪里创建，便于手动处理
 			return result
 		}
 		result.Message += "包创建成功; "
 	}
 
-	// 创建指定字典（如果需要）
+	// 步骤3：创建指定字典（如果需要）
+	// 为什么在模块创建前创建字典：模块字段可能引用字典类型，必须先创建字典
+	// 好处：确保模块创建时字典已存在，避免引用错误
 	if plan.NeedCreatedDictionaries && len(plan.DictionariesInfo) > 0 {
 		dictResult := g.createDictionariesFromInfo(ctx, plan.DictionariesInfo)
 		result.Message += dictResult
 	}
 
-	// 批量创建字典和模块（如果需要）
+	// 步骤4：批量创建模块（如果需要）
+	// 设计思路：使用循环批量创建，单个模块失败不影响其他模块
+	// 为什么支持批量创建：
+	// 1. 提高效率：一次性创建多个模块，减少调用次数
+	// 2. 原子性：相关模块可以一起创建，保持一致性
+	// 3. 用户体验：减少用户操作步骤
+	//
+	// 好处：
+	// 1. 容错性：单个模块失败不影响其他模块
+	// 2. 效率：批量处理比逐个处理效率高
+	// 3. 一致性：相关模块一起创建，确保配置一致
 	if plan.NeedCreatedModules && len(plan.ModulesInfo) > 0 {
 		templateService := service.ServiceGroupApp.SystemServiceGroup.AutoCodeTemplate
 
 		// 遍历所有模块进行创建
+		// 为什么使用循环：支持批量创建多个模块
+		// 好处：一次性处理所有模块，提高效率
 		for _, moduleInfo := range plan.ModulesInfo {
-
-			// 创建模块
+			// 预处理模块信息
+			// 为什么需要预处理：确保模块信息格式正确，补充默认值等
+			// 好处：提前发现问题，避免创建时失败
 			err := moduleInfo.Pretreatment()
 			if err != nil {
 				result.Message += fmt.Sprintf("模块 %s 信息预处理失败: %v; ", moduleInfo.StructName, err)
-				continue // 继续处理下一个模块
+				continue // 继续处理下一个模块，不因单个失败而停止
 			}
 
+			// 创建模块
+			// 为什么使用service层：遵循分层架构，业务逻辑在service层
+			// 好处：代码结构清晰，便于维护和测试
 			err = templateService.Create(ctx, *moduleInfo)
 			if err != nil {
 				result.Message += fmt.Sprintf("创建模块 %s 失败: %v; ", moduleInfo.StructName, err)
@@ -646,6 +743,11 @@ func (g *GVAExecutor) executeCreation(ctx context.Context, plan *ExecutionPlan) 
 		result.Message += fmt.Sprintf("批量创建完成，共处理 %d 个模块; ", len(plan.ModulesInfo))
 
 		// 添加重要提醒：不要使用其他MCP工具
+		// 为什么需要提醒：模块创建时已自动生成API和菜单，不需要再调用其他工具
+		// 好处：
+		// 1. 避免重复操作：防止用户重复创建API和菜单
+		// 2. 明确说明：让用户知道哪些操作已完成
+		// 3. 指导用户：告诉用户如何修改API和菜单
 		result.Message += "\n\n⚠️ 重要提醒：\n"
 		result.Message += "模块创建已完成，API和菜单已自动生成。请不要再调用以下MCP工具：\n"
 		result.Message += "- api_creator：API权限已在模块创建时自动生成\n"
@@ -664,34 +766,67 @@ func (g *GVAExecutor) executeCreation(ctx context.Context, plan *ExecutionPlan) 
 }
 
 // buildDirectoryStructure 构建目录结构信息
+// 
+// 设计思路：根据包类型（package或plugin）构建不同的目录结构
+// 为什么需要区分：
+// - package模式：传统的分层结构，api、model、service、router分别在不同目录
+// - plugin模式：插件结构，所有文件都在plugin/packageName/目录下
+//
+// 路径结构对比：
+// package模式：
+//   - api: server/api/v1/packageName/
+//   - model: server/model/packageName/
+//   - service: server/service/packageName/
+//   - router: server/router/packageName/
+//
+// plugin模式：
+//   - api: server/plugin/packageName/api/
+//   - model: server/plugin/packageName/model/
+//   - service: server/plugin/packageName/service/
+//   - router: server/plugin/packageName/router/
+//
+// 好处：
+// 1. 灵活性：支持两种不同的代码组织方式
+// 2. 清晰性：明确返回所有相关路径，便于用户理解
+// 3. 完整性：包含前后端所有路径，提供完整的目录结构
 func (g *GVAExecutor) buildDirectoryStructure(plan *ExecutionPlan) map[string]string {
 	paths := make(map[string]string)
 
 	// 获取配置信息
+	// 为什么从配置读取：路径配置可能因环境而异，从配置读取更灵活
+	// 好处：支持不同环境的配置，提高可移植性
 	autoCodeConfig := global.GVA_CONFIG.AutoCode
 
 	// 构建基础路径
+	// 为什么提取基础路径：避免重复拼接，代码更清晰
+	// 好处：代码简洁，易于维护
 	rootPath := autoCodeConfig.Root
 	serverPath := autoCodeConfig.Server
 	webPath := autoCodeConfig.Web
 	moduleName := autoCodeConfig.Module
 
 	// 如果计划中有包名，使用计划中的包名，否则使用默认
+	// 为什么有默认值：确保即使包名为空也能返回有效的路径结构
+	// 好处：提供合理的默认值，避免返回空路径
 	packageName := "example"
 	if plan.PackageName != "" {
 		packageName = plan.PackageName
 	}
 
 	// 如果计划中有模块信息，获取第一个模块的结构名作为默认值
+	// 为什么使用第一个模块：大多数情况下只有一个模块，使用第一个作为代表
+	// 好处：提供有意义的默认值，便于用户理解
 	structName := "ExampleStruct"
 	if len(plan.ModulesInfo) > 0 && plan.ModulesInfo[0].StructName != "" {
 		structName = plan.ModulesInfo[0].StructName
 	}
 
 	// 根据包类型构建不同的路径结构
+	// 为什么需要区分类型：package和plugin的目录结构完全不同
+	// 好处：准确构建对应类型的路径，避免路径错误
 	packageType := plan.PackageType
 	if packageType == "" {
-		packageType = "package" // 默认为package模式
+		packageType = "package" // 默认为package模式，保持向后兼容
 	}
 
 	// 构建服务端路径

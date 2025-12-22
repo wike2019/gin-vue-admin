@@ -4,6 +4,7 @@ import (
 	"time"
 )
 
+// SysAuthority System authority (role) structure
 type SysAuthority struct {
 	CreatedAt       time.Time       // 创建时间
 	UpdatedAt       time.Time       // 更新时间

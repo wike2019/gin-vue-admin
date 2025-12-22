@@ -4,6 +4,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
+// JwtBlacklist JWT blacklist structure
 type JwtBlacklist struct {
 	global.GVA_MODEL
 	Jwt string `gorm:"type:text;comment:jwt"`

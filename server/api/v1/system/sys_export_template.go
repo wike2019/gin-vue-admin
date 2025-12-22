@@ -18,19 +18,30 @@ import (
 	"go.uber.org/zap"
 )
 
-// 用于token一次性存储
+// 导出功能的一次性token缓存机制
+// 设计说明：
+// 1. 内存缓存：使用map存储token和参数，避免数据库查询，提高性能
+// 2. 过期管理：单独维护过期时间map，便于清理过期token
+// 3. 读写锁：使用RWMutex保证并发安全，读操作可以并发执行
+// 4. 好处：性能高、并发安全、内存占用可控
 var (
-	exportTokenCache      = make(map[string]interface{})
-	exportTokenExpiration = make(map[string]time.Time)
-	tokenMutex            sync.RWMutex
+	exportTokenCache      = make(map[string]interface{}) // token对应的导出参数
+	exportTokenExpiration = make(map[string]time.Time)   // token过期时间
+	tokenMutex            sync.RWMutex                    // 读写锁，保证并发安全
 )
 
-// 五分钟检测窗口过期
+// cleanupExpiredTokens 定期清理过期的token
+// 设计说明：
+// 1. 后台goroutine：在init函数中启动，应用启动时自动运行
+// 2. 定期清理：每5分钟清理一次，避免内存泄漏
+// 3. 批量清理：一次性清理所有过期token，效率高
+// 4. 好处：自动清理、防止内存泄漏、无需手动管理
 func cleanupExpiredTokens() {
 	for {
 		time.Sleep(5 * time.Minute)
 		tokenMutex.Lock()
 		now := time.Now()
+		// 遍历所有token，删除已过期的
 		for token, expiry := range exportTokenExpiration {
 			if now.After(expiry) {
 				delete(exportTokenCache, token)
@@ -41,6 +52,8 @@ func cleanupExpiredTokens() {
 	}
 }
 
+// init 初始化函数，应用启动时自动执行
+// 启动后台goroutine清理过期token
 func init() {
 	go cleanupExpiredTokens()
 }
@@ -241,7 +254,12 @@ func (sysExportTemplateApi *SysExportTemplateApi) GetSysExportTemplateList(c *gi
 	}
 }
 
-// ExportExcel 导出表格token
+// ExportExcel 生成导出Excel的一次性token
+// 设计说明：
+// 1. 两阶段导出：先获取token，再用token导出，避免URL参数过长
+// 2. 一次性token：token使用后立即删除，防止重复使用
+// 3. 参数缓存：将查询参数缓存在内存中，避免在URL中传递大量参数
+// 4. 好处：URL简洁、安全性高、支持复杂查询条件
 // @Tags SysExportTemplate
 // @Summary 导出表格
 // @Security ApiKeyAuth
@@ -255,29 +273,37 @@ func (sysExportTemplateApi *SysExportTemplateApi) ExportExcel(c *gin.Context) {
 		return
 	}
 
+	// 获取所有查询参数，包括分页、筛选等条件
 	queryParams := c.Request.URL.Query()
 
-	//创造一次性token
-	token := utils.RandomString(32) // 随机32位
+	// 生成32位随机token，保证唯一性和安全性
+	token := utils.RandomString(32)
 
-	// 记录本次请求参数
+	// 将导出参数封装到map中，便于后续使用
 	exportParams := map[string]interface{}{
 		"templateID":  templateID,
 		"queryParams": queryParams,
 	}
 
-	// 参数保留记录完成鉴权
+	// 使用写锁保护，将token和参数存入缓存
+	// 设置30分钟过期时间，防止token长期有效
 	tokenMutex.Lock()
 	exportTokenCache[token] = exportParams
 	exportTokenExpiration[token] = time.Now().Add(30 * time.Minute)
 	tokenMutex.Unlock()
 
-	// 生成一次性链接
+	// 返回一次性导出链接，前端可以直接使用此链接下载
 	exportUrl := fmt.Sprintf("/sysExportTemplate/exportExcelByToken?token=%s", token)
 	response.OkWithData(exportUrl, c)
 }
 
-// ExportExcelByToken 导出表格
+// ExportExcelByToken 通过token导出Excel文件
+// 设计说明：
+// 1. 一次性token：使用后立即删除，防止重复下载
+// 2. 读锁优化：先使用读锁检查token，再使用写锁删除，减少锁竞争
+// 3. 过期检查：同时检查token存在性和过期时间，保证安全性
+// 4. 文件下载：设置Content-Disposition头，浏览器自动下载
+// 5. 好处：安全性高、性能好、用户体验佳
 // @Tags ExportExcelByToken
 // @Summary 导出表格
 // @Security ApiKeyAuth
@@ -291,19 +317,20 @@ func (sysExportTemplateApi *SysExportTemplateApi) ExportExcelByToken(c *gin.Cont
 		return
 	}
 
-	// 获取token并且从缓存中剔除
+	// 使用读锁检查token，读操作可以并发执行，提高性能
 	tokenMutex.RLock()
 	exportParamsRaw, exists := exportTokenCache[token]
 	expiry, _ := exportTokenExpiration[token]
 	tokenMutex.RUnlock()
 
+	// 检查token是否存在和是否过期
 	if !exists || time.Now().After(expiry) {
 		global.GVA_LOG.Error("导出token无效或已过期!")
 		response.FailWithMessage("导出token无效或已过期", c)
 		return
 	}
 
-	// 从token获取参数
+	// 类型断言，确保参数格式正确
 	exportParams, ok := exportParamsRaw.(map[string]interface{})
 	if !ok {
 		global.GVA_LOG.Error("解析导出参数失败!")
@@ -311,21 +338,24 @@ func (sysExportTemplateApi *SysExportTemplateApi) ExportExcelByToken(c *gin.Cont
 		return
 	}
 
-	// 获取导出参数
+	// 提取导出参数
 	templateID := exportParams["templateID"].(string)
 	queryParams := exportParams["queryParams"].(url.Values)
 
-	// 清理一次性token
+	// 使用写锁删除token，实现一次性使用
+	// 好处：防止token被重复使用，提高安全性
 	tokenMutex.Lock()
 	delete(exportTokenCache, token)
 	delete(exportTokenExpiration, token)
 	tokenMutex.Unlock()
 
-	// 导出
+	// 调用Service层执行导出
 	if file, name, err := sysExportTemplateService.ExportExcel(templateID, queryParams); err != nil {
 		global.GVA_LOG.Error("获取失败!", zap.Error(err))
 		response.FailWithMessage("获取失败", c)
 	} else {
+		// 设置响应头，浏览器自动下载文件
+		// 文件名添加随机字符串，避免文件名冲突
 		c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", name+utils.RandomString(6)+".xlsx"))
 		c.Header("success", "true")
 		c.Data(http.StatusOK, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", file.Bytes())

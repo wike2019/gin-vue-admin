@@ -4,7 +4,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
-// file struct, 文件结构体
+// ExaFile File structure for breakpoint continuation
 type ExaFile struct {
 	global.GVA_MODEL
 	FileName     string
@@ -15,7 +15,7 @@ type ExaFile struct {
 	IsFinish     bool
 }
 
-// file chunk struct, 切片结构体
+// ExaFileChunk File chunk structure for breakpoint continuation
 type ExaFileChunk struct {
 	global.GVA_MODEL
 	ExaFileID       uint

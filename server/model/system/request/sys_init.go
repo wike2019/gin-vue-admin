@@ -6,6 +6,7 @@ import (
 	"os"
 )
 
+// InitDB Initialize database request structure
 type InitDB struct {
 	AdminPassword string `json:"adminPassword" binding:"required"`
 	DBType        string `json:"dbType"`                    // 数据库类型

@@ -4,6 +4,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 )
 
+// SysApi System API structure
 type SysApi struct {
 	global.GVA_MODEL
 	Path        string `json:"path" gorm:"comment:api路径"`             // api路径
@@ -16,6 +17,7 @@ func (SysApi) TableName() string {
 	return "sys_apis"
 }
 
+// SysIgnoreApi System ignore API structure
 type SysIgnoreApi struct {
 	global.GVA_MODEL
 	Path   string `json:"path" gorm:"comment:api路径"`             // api路径

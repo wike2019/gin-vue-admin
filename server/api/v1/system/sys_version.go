@@ -21,24 +21,49 @@ import (
 type SysVersionApi struct{}
 
 // buildMenuTree 构建菜单树结构
+// 设计要点：
+// 1. 树形结构：将扁平菜单列表转换为树形结构，便于前端展示
+// 2. 映射优化：使用 map 存储菜单，O(1) 时间复杂度查找子菜单
+// 3. 递归构建：通过递归方式构建完整的菜单树
+// 4. 排序支持：按 Sort 字段排序，保证菜单显示顺序
+//
+// 为什么这么写：
+// - 映射优化：使用 map[ID]*Menu 存储菜单，查找子菜单时间复杂度从 O(n) 降到 O(1)
+// - 递归构建：通过递归方式构建树形结构，代码简洁清晰
+// - 排序支持：按 Sort 字段排序，保证菜单显示顺序符合预期
+// - 内存效率：使用指针避免数据复制，节省内存
+//
+// 算法复杂度：
+// - 时间复杂度：O(n) - 遍历一次菜单列表，map 查找为 O(1)
+// - 空间复杂度：O(n) - 需要 map 和结果数组存储菜单
+//
+// 好处：
+// - 性能：map 查找比线性查找快，适合大量菜单场景
+// - 可维护性：递归构建逻辑清晰，易于理解和维护
+// - 灵活性：支持任意深度的菜单树结构
 func buildMenuTree(menus []system.SysBaseMenu) []system.SysBaseMenu {
-	// 创建菜单映射
+	// 步骤1：创建菜单映射表
+	// 使用 map[ID]*Menu 存储菜单，便于快速查找子菜单
+	// 好处：查找子菜单时间复杂度从 O(n) 降到 O(1)
 	menuMap := make(map[uint]*system.SysBaseMenu)
 	for i := range menus {
 		menuMap[menus[i].ID] = &menus[i]
 	}
 
-	// 构建树结构
+	// 步骤2：构建树结构 - 找出所有根菜单（ParentId == 0）
+	// 设计原因：从根菜单开始递归构建，形成完整的树形结构
 	var rootMenus []system.SysBaseMenu
 	for _, menu := range menus {
 		if menu.ParentId == 0 {
-			// 根菜单
+			// 根菜单：递归构建其子菜单树
 			menuData := convertMenuToStruct(menu, menuMap)
 			rootMenus = append(rootMenus, menuData)
 		}
 	}
 
-	// 按sort排序根菜单
+	// 步骤3：按 Sort 字段排序根菜单
+	// 设计原因：保证菜单显示顺序符合预期
+	// 好处：前端可以直接使用，无需再次排序
 	sort.Slice(rootMenus, func(i, j int) bool {
 		return rootMenus[i].Sort < rootMenus[j].Sort
 	})
@@ -47,7 +72,27 @@ func buildMenuTree(menus []system.SysBaseMenu) []system.SysBaseMenu {
 }
 
 // convertMenuToStruct 将菜单转换为结构体并递归处理子菜单
+// 设计要点：
+// 1. 数据清理：只复制业务字段，不复制数据库字段（ID、时间戳等）
+// 2. 递归构建：递归处理子菜单，构建完整的菜单树
+// 3. 排序支持：对子菜单进行排序，保证显示顺序
+// 4. 内存优化：使用预分配容量，减少内存重新分配
+//
+// 为什么这么写：
+// - 数据清理：导出数据时不需要数据库字段（ID、时间戳等），只保留业务数据
+// - 递归构建：通过递归方式构建任意深度的菜单树，代码简洁
+// - 排序支持：保证子菜单显示顺序符合预期
+// - 内存优化：使用 make(..., 0, len) 预分配容量，减少内存重新分配
+//
+// 好处：
+// - 数据纯净：导出的数据只包含业务字段，便于跨系统使用
+// - 性能优化：预分配容量减少内存重新分配，提升性能
+// - 可维护性：递归逻辑清晰，易于理解和维护
+// - 灵活性：支持任意深度的菜单树结构
 func convertMenuToStruct(menu system.SysBaseMenu, menuMap map[uint]*system.SysBaseMenu) system.SysBaseMenu {
+	// 步骤1：复制菜单基本信息
+	// 只复制业务字段，不复制数据库字段（ID、时间戳等）
+	// 设计原因：导出数据时不需要数据库字段，只保留业务数据
 	result := system.SysBaseMenu{
 		Path:      menu.Path,
 		Name:      menu.Name,
@@ -57,8 +102,11 @@ func convertMenuToStruct(menu system.SysBaseMenu, menuMap map[uint]*system.SysBa
 		Meta:      menu.Meta,
 	}
 
-	// 清理并复制参数数据
+	// 步骤2：清理并复制菜单参数数据
+	// 只复制业务字段，不复制数据库字段
+	// 好处：导出的数据更纯净，便于跨系统使用
 	if len(menu.Parameters) > 0 {
+		// 预分配容量，减少内存重新分配
 		cleanParameters := make([]system.SysBaseMenuParameter, 0, len(menu.Parameters))
 		for _, param := range menu.Parameters {
 			cleanParam := system.SysBaseMenuParameter{
@@ -66,14 +114,17 @@ func convertMenuToStruct(menu system.SysBaseMenu, menuMap map[uint]*system.SysBa
 				Key:   param.Key,
 				Value: param.Value,
 				// 不复制 ID, CreatedAt, UpdatedAt, SysBaseMenuID
+				// 设计原因：这些是数据库字段，导出时不需要
 			}
 			cleanParameters = append(cleanParameters, cleanParam)
 		}
 		result.Parameters = cleanParameters
 	}
 
-	// 清理并复制菜单按钮数据
+	// 步骤3：清理并复制菜单按钮数据
+	// 只复制业务字段，不复制数据库字段
 	if len(menu.MenuBtn) > 0 {
+		// 预分配容量，减少内存重新分配
 		cleanMenuBtns := make([]system.SysBaseMenuBtn, 0, len(menu.MenuBtn))
 		for _, btn := range menu.MenuBtn {
 			cleanBtn := system.SysBaseMenuBtn{
@@ -86,16 +137,20 @@ func convertMenuToStruct(menu system.SysBaseMenu, menuMap map[uint]*system.SysBa
 		result.MenuBtn = cleanMenuBtns
 	}
 
-	// 查找并处理子菜单
+	// 步骤4：递归查找并处理子菜单
+	// 通过 map 查找所有 ParentId == menu.ID 的子菜单
+	// 设计原因：递归构建完整的菜单树结构
 	var children []system.SysBaseMenu
 	for _, childMenu := range menuMap {
 		if childMenu.ParentId == menu.ID {
+			// 递归处理子菜单，构建子菜单树
 			childData := convertMenuToStruct(*childMenu, menuMap)
 			children = append(children, childData)
 		}
 	}
 
-	// 按sort排序子菜单
+	// 步骤5：按 Sort 字段排序子菜单
+	// 设计原因：保证子菜单显示顺序符合预期
 	if len(children) > 0 {
 		sort.Slice(children, func(i, j int) bool {
 			return children[i].Sort < children[j].Sort
@@ -226,7 +281,32 @@ func (sysVersionApi *SysVersionApi) GetSysVersionPublic(c *gin.Context) {
 	}, "获取成功", c)
 }
 
-// ExportVersion 创建发版数据
+// ExportVersion 创建发版数据接口
+// 设计要点：
+// 1. 选择性导出：支持选择性地导出菜单、API、字典数据
+// 2. 数据清理：清理数据库字段，只保留业务数据
+// 3. 树形结构：将菜单数据转换为树形结构，便于前端使用
+// 4. 版本管理：保存版本信息，支持版本回滚和对比
+//
+// 为什么这么写：
+// - 选择性导出：允许用户选择需要导出的数据，减少不必要的数据传输
+// - 数据清理：只保留业务字段，去除数据库字段，便于跨系统使用
+// - 树形结构：菜单数据转换为树形结构，前端可以直接使用
+// - 版本管理：保存版本信息，支持版本回滚和对比
+//
+// 工作流程：
+// 1. 获取选中的菜单、API、字典数据
+// 2. 清理数据（去除数据库字段）
+// 3. 构建树形结构（菜单）
+// 4. 序列化为 JSON
+// 5. 保存版本记录
+//
+// 好处：
+// - 灵活性：支持选择性导出，满足不同场景需求
+// - 数据纯净：只保留业务数据，便于跨系统使用
+// - 可维护性：版本管理支持回滚和对比
+// - 性能：选择性导出减少数据传输量
+//
 // @Tags SysVersion
 // @Summary 创建发版数据
 // @Security ApiKeyAuth
@@ -236,8 +316,11 @@ func (sysVersionApi *SysVersionApi) GetSysVersionPublic(c *gin.Context) {
 // @Success 200 {object} response.Response{msg=string} "创建成功"
 // @Router /sysVersion/exportVersion [post]
 func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
+	// 创建业务用 Context，支持超时控制和取消
+	// 设计原因：使用 Context 可以控制请求超时和取消，提升系统稳定性
 	ctx := c.Request.Context()
 
+	// 步骤1：绑定请求参数
 	var req systemReq.ExportVersionRequest
 	err := c.ShouldBindJSON(&req)
 	if err != nil {
@@ -245,7 +328,9 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		return
 	}
 
-	// 获取选中的菜单数据
+	// 步骤2：获取选中的菜单数据（如果选择了菜单）
+	// 设计原因：选择性导出，只获取用户选择的数据
+	// 好处：减少数据传输量，提升性能
 	var menuData []system.SysBaseMenu
 	if len(req.MenuIds) > 0 {
 		menuData, err = sysVersionService.GetMenusByIds(ctx, req.MenuIds)
@@ -256,7 +341,7 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		}
 	}
 
-	// 获取选中的API数据
+	// 步骤3：获取选中的API数据（如果选择了API）
 	var apiData []system.SysApi
 	if len(req.ApiIds) > 0 {
 		apiData, err = sysVersionService.GetApisByIds(ctx, req.ApiIds)
@@ -267,7 +352,7 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		}
 	}
 
-	// 获取选中的字典数据
+	// 步骤4：获取选中的字典数据（如果选择了字典）
 	var dictData []system.SysDictionary
 	if len(req.DictIds) > 0 {
 		dictData, err = sysVersionService.GetDictionariesByIds(ctx, req.DictIds)
@@ -278,10 +363,14 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		}
 	}
 
-	// 处理菜单数据，构建递归的children结构
+	// 步骤5：处理菜单数据，构建递归的树形结构
+	// 设计原因：菜单数据需要转换为树形结构，便于前端直接使用
+	// 好处：前端无需再次处理，直接渲染树形菜单
 	processedMenus := buildMenuTree(menuData)
 
-	// 处理API数据，清除ID和时间戳字段
+	// 步骤6：处理API数据，清除数据库字段（ID、时间戳等）
+	// 设计原因：导出数据时不需要数据库字段，只保留业务数据
+	// 好处：数据更纯净，便于跨系统使用
 	processedApis := make([]system.SysApi, 0, len(apiData))
 	for _, api := range apiData {
 		cleanApi := system.SysApi{
@@ -289,11 +378,14 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 			Description: api.Description,
 			ApiGroup:    api.ApiGroup,
 			Method:      api.Method,
+			// 不复制 ID, CreatedAt, UpdatedAt 等数据库字段
 		}
 		processedApis = append(processedApis, cleanApi)
 	}
 
-	// 处理字典数据，清除ID和时间戳字段，包含字典详情
+	// 步骤7：处理字典数据，清除数据库字段，包含字典详情
+	// 设计原因：字典数据包含详情，需要递归清理所有数据库字段
+	// 好处：导出的字典数据完整且纯净
 	processedDicts := make([]system.SysDictionary, 0, len(dictData))
 	for _, dict := range dictData {
 		cleanDict := system.SysDictionary{
@@ -301,9 +393,11 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 			Type:   dict.Type,
 			Status: dict.Status,
 			Desc:   dict.Desc,
+			// 不复制 ID, CreatedAt, UpdatedAt 等数据库字段
 		}
 		
-		// 处理字典详情数据，清除ID和时间戳字段
+		// 处理字典详情数据，清除数据库字段
+		// 设计原因：字典详情也需要清理，保持数据一致性
 		cleanDetails := make([]system.SysDictionaryDetail, 0, len(dict.SysDictionaryDetails))
 		for _, detail := range dict.SysDictionaryDetails {
 			cleanDetail := system.SysDictionaryDetail{
@@ -321,20 +415,23 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		processedDicts = append(processedDicts, cleanDict)
 	}
 
-	// 构建导出数据
+	// 步骤8：构建导出数据对象
+	// 包含版本信息和清理后的业务数据
 	exportData := systemRes.ExportVersionResponse{
 		Version: systemReq.VersionInfo{
 			Name:        req.VersionName,
 			Code:        req.VersionCode,
 			Description: req.Description,
-			ExportTime:  time.Now().Format("2006-01-02 15:04:05"),
+			ExportTime:  time.Now().Format("2006-01-02 15:04:05"), // 记录导出时间
 		},
-		Menus:        processedMenus,
-		Apis:         processedApis,
-		Dictionaries: processedDicts,
+		Menus:        processedMenus,  // 树形结构的菜单数据
+		Apis:         processedApis,   // 清理后的API数据
+		Dictionaries: processedDicts,   // 清理后的字典数据（包含详情）
 	}
 
-	// 转换为JSON
+	// 步骤9：序列化为 JSON（格式化输出，便于阅读）
+	// 使用 MarshalIndent 格式化输出，便于人工阅读和调试
+	// 设计原因：格式化的 JSON 便于人工查看和版本对比
 	jsonData, err := json.MarshalIndent(exportData, "", "  ")
 	if err != nil {
 		global.GVA_LOG.Error("JSON序列化失败!", zap.Error(err))
@@ -342,12 +439,14 @@ func (sysVersionApi *SysVersionApi) ExportVersion(c *gin.Context) {
 		return
 	}
 
-	// 保存版本记录
+	// 步骤10：保存版本记录到数据库
+	// 设计原因：保存版本信息，支持版本回滚和对比
+	// 好处：可以查看历史版本，支持版本回滚
 	version := system.SysVersion{
 		VersionName: utils.Pointer(req.VersionName),
 		VersionCode: utils.Pointer(req.VersionCode),
 		Description: utils.Pointer(req.Description),
-		VersionData: utils.Pointer(string(jsonData)),
+		VersionData: utils.Pointer(string(jsonData)), // 保存完整的 JSON 数据
 	}
 
 	err = sysVersionService.CreateSysVersion(ctx, &version)

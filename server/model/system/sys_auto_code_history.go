@@ -9,7 +9,7 @@ import (
 	"strings"
 )
 
-// SysAutoCodeHistory 自动迁移代码记录,用于回滚,重放使用
+// SysAutoCodeHistory Auto code generation history structure for rollback and replay
 type SysAutoCodeHistory struct {
 	global.GVA_MODEL
 	Table            string             `json:"tableName" gorm:"column:table_name;comment:表名"`

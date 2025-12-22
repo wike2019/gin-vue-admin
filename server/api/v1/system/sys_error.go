@@ -1,5 +1,12 @@
 package system
 
+// 系统错误日志管理API层
+// 设计说明：
+// 1. Context传递：所有方法都使用c.Request.Context()获取标准context，支持超时控制和取消
+// 2. 异步处理：GetSysErrorSolution支持异步处理错误，提高响应速度
+// 3. 参数兼容：支持id和ID两种参数格式，提高兼容性
+// 4. 好处：支持超时控制、异步处理、兼容性好
+
 import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/response"
@@ -9,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// SysErrorApi 系统错误日志API结构体
 type SysErrorApi struct{}
 
 // CreateSysError 创建错误日志
@@ -21,7 +29,8 @@ type SysErrorApi struct{}
 // @Success 200 {object} response.Response{msg=string} "创建成功"
 // @Router /sysError/createSysError [post]
 func (sysErrorApi *SysErrorApi) CreateSysError(c *gin.Context) {
-	// 创建业务用Context
+	// 从Gin Context中提取标准context，传递给Service层
+	// 好处：支持context超时控制、取消操作、传递请求元数据（如trace ID）
 	ctx := c.Request.Context()
 
 	var sysError system.SysError
@@ -30,6 +39,7 @@ func (sysErrorApi *SysErrorApi) CreateSysError(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	// Service层接收context，可以在业务逻辑中使用超时控制等特性
 	err = sysErrorService.CreateSysError(ctx, &sysError)
 	if err != nil {
 		global.GVA_LOG.Error("创建失败!", zap.Error(err))
@@ -169,6 +179,11 @@ func (sysErrorApi *SysErrorApi) GetSysErrorList(c *gin.Context) {
 }
 
 // GetSysErrorSolution 触发错误日志的异步处理
+// 设计说明：
+// 1. 异步处理模式：提交任务后立即返回，不等待处理完成，提高响应速度
+// 2. 参数兼容性：优先使用小写id，提高API的兼容性
+// 3. 快速响应：异步处理避免长时间等待，提升用户体验
+// 4. 好处：响应快速、用户体验好、系统负载低
 // @Tags SysError
 // @Summary 根据ID触发处理：标记为处理中，1分钟后自动改为处理完成
 // @Security ApiKeyAuth
@@ -178,16 +193,18 @@ func (sysErrorApi *SysErrorApi) GetSysErrorList(c *gin.Context) {
 // @Success 200 {object} response.Response{msg=string} "处理已提交"
 // @Router /sysError/getSysErrorSolution [get]
 func (sysErrorApi *SysErrorApi) GetSysErrorSolution(c *gin.Context) {
-	// 创建业务用Context
 	ctx := c.Request.Context()
 
-	// 兼容 id 与 ID 两种参数
+	// 优先使用小写id参数，提高API兼容性
+	// 好处：支持不同前端框架的参数命名习惯
 	ID := c.Query("id")
 	if ID == "" {
 		response.FailWithMessage("缺少参数: id", c)
 		return
 	}
 
+	// 异步处理：提交任务后立即返回，不阻塞请求
+	// 好处：快速响应，避免长时间等待，提升用户体验
 	err := sysErrorService.GetSysErrorSolution(ctx, ID)
 	if err != nil {
 		global.GVA_LOG.Error("处理触发失败!", zap.Error(err))

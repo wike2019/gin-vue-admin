@@ -12,6 +12,7 @@ type CustomClaims struct {
 	jwt.RegisteredClaims
 }
 
+// BaseClaims Base claims structure for JWT
 type BaseClaims struct {
 	UUID        uuid.UUID
 	ID          uint

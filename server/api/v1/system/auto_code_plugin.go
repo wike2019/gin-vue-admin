@@ -11,7 +11,13 @@ import (
 
 type AutoCodePluginApi struct{}
 
-// Install
+// Install 安装插件
+// 设计说明：
+// 1. 文件上传：使用multipart/form-data接收文件
+// 2. 分离安装：web和server分别安装，返回各自的安装结果
+// 3. 友好提示：根据安装结果返回不同的提示信息
+// 4. 状态码：使用-1表示安装失败，便于前端判断
+// 5. 好处：安装灵活、提示清晰、支持分离部署
 // @Tags      AutoCodePlugin
 // @Summary   安装插件
 // @Security  ApiKeyAuth
@@ -26,9 +32,11 @@ func (a *AutoCodePluginApi) Install(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	// Service层返回web和server的安装结果
 	web, server, err := autoCodePluginService.Install(header)
 	webStr := "web插件安装成功"
 	serverStr := "server插件安装成功"
+	// 根据安装结果设置不同的提示信息
 	if web == -1 {
 		webStr = "web端插件未成功安装，请按照文档自行解压安装，如果为纯后端插件请忽略此条提示"
 	}
@@ -39,6 +47,7 @@ func (a *AutoCodePluginApi) Install(c *gin.Context) {
 		response.FailWithMessage(err.Error(), c)
 		return
 	}
+	// 返回web和server的安装结果，前端可以分别处理
 	response.OkWithData([]interface{}{
 		gin.H{
 			"code": web,

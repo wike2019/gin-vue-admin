@@ -45,7 +45,30 @@ func (s *SystemApiApi) CreateApi(c *gin.Context) {
 	response.OkWithMessage("创建成功", c)
 }
 
-// SyncApi
+// SyncApi 同步API接口
+// 设计要点：
+// 1. 自动发现：自动扫描代码中的 API 定义，发现新增的 API
+// 2. 差异对比：对比代码中的 API 和数据库中的 API，找出差异
+// 3. 分类返回：将差异分为新增、删除、忽略三类，便于用户选择
+// 4. 非破坏性：只返回差异信息，不自动修改数据库，由用户确认后操作
+//
+// 为什么这么写：
+// - 自动发现：通过代码扫描自动发现 API，无需手动维护
+// - 差异对比：对比代码和数据库，找出需要同步的 API
+// - 分类返回：将差异分类，便于用户理解和选择
+// - 非破坏性：不自动修改数据库，由用户确认后操作，防止误操作
+//
+// 工作流程：
+// 1. 扫描代码中的 API 定义（通过注解或路由注册）
+// 2. 对比数据库中的 API 记录
+// 3. 找出新增、删除、忽略的 API
+// 4. 返回差异信息，等待用户确认
+//
+// 好处：
+// - 自动化：自动发现 API，减少手动维护工作
+// - 安全性：非破坏性操作，由用户确认后执行
+// - 可维护性：清晰的差异分类，便于用户理解
+//
 // @Tags      SysApi
 // @Summary   同步API
 // @Security  ApiKeyAuth
@@ -54,16 +77,26 @@ func (s *SystemApiApi) CreateApi(c *gin.Context) {
 // @Success   200   {object}  response.Response{msg=string}  "同步API"
 // @Router    /api/syncApi [get]
 func (s *SystemApiApi) SyncApi(c *gin.Context) {
+	// 调用服务层同步 API
+	// service 层会：
+	// 1. 扫描代码中的 API 定义
+	// 2. 对比数据库中的 API 记录
+	// 3. 返回新增、删除、忽略的 API 列表
+	// 设计原因：非破坏性操作，只返回差异信息，由用户确认后操作
 	newApis, deleteApis, ignoreApis, err := apiService.SyncApi()
 	if err != nil {
 		global.GVA_LOG.Error("同步失败!", zap.Error(err))
 		response.FailWithMessage("同步失败", c)
 		return
 	}
+	
+	// 返回差异信息，包含新增、删除、忽略的 API
+	// 设计原因：让用户了解需要同步的 API，由用户确认后操作
+	// 好处：防止误操作，提升安全性
 	response.OkWithData(gin.H{
-		"newApis":    newApis,
-		"deleteApis": deleteApis,
-		"ignoreApis": ignoreApis,
+		"newApis":    newApis,    // 新增的 API（代码中有，数据库中无）
+		"deleteApis": deleteApis, // 删除的 API（数据库中有，代码中无）
+		"ignoreApis": ignoreApis, // 忽略的 API（用户手动忽略的 API）
 	}, c)
 }
 
@@ -305,7 +338,29 @@ func (s *SystemApiApi) DeleteApisByIds(c *gin.Context) {
 	response.OkWithMessage("删除成功", c)
 }
 
-// FreshCasbin
+// FreshCasbin 刷新 Casbin 权限缓存接口
+// 设计要点：
+// 1. 权限同步：刷新 Casbin 权限缓存，确保权限与数据库一致
+// 2. 实时生效：权限变更后刷新缓存，无需重启服务
+// 3. 手动触发：提供手动刷新接口，便于调试和问题排查
+// 4. 无认证要求：此接口不需要认证，便于系统内部调用
+//
+// 为什么这么写：
+// - 权限同步：权限变更后需要刷新缓存，确保权限立即生效
+// - 实时生效：无需重启服务，权限变更立即生效
+// - 手动触发：提供手动刷新接口，便于调试和问题排查
+// - 无认证要求：系统内部调用，无需认证
+//
+// 使用场景：
+// - 权限变更后自动刷新（在创建/删除角色、修改权限时调用）
+// - 手动刷新（管理员手动刷新权限缓存）
+// - 问题排查（权限异常时手动刷新）
+//
+// 好处：
+// - 实时性：权限变更立即生效，无需重启服务
+// - 可维护性：提供手动刷新接口，便于问题排查
+// - 性能：缓存机制提升权限检查性能
+//
 // @Tags      SysApi
 // @Summary   刷新casbin缓存
 // @accept    application/json
@@ -313,6 +368,12 @@ func (s *SystemApiApi) DeleteApisByIds(c *gin.Context) {
 // @Success   200   {object}  response.Response{msg=string}  "刷新成功"
 // @Router    /api/freshCasbin [get]
 func (s *SystemApiApi) FreshCasbin(c *gin.Context) {
+	// 调用服务层刷新 Casbin 权限缓存
+	// service 层会：
+	// 1. 从数据库加载最新的权限规则
+	// 2. 更新 Casbin 内存缓存
+	// 3. 确保权限与数据库一致
+	// 设计原因：权限变更后需要刷新缓存，确保权限立即生效
 	err := casbinService.FreshCasbin()
 	if err != nil {
 		global.GVA_LOG.Error("刷新失败!", zap.Error(err))

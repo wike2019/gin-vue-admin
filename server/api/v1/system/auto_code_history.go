@@ -1,5 +1,12 @@
 package system
 
+// 自动代码生成历史记录API层
+// 设计说明：
+// 1. Context传递：所有方法都传递context，支持超时控制和取消
+// 2. 回滚功能：支持代码回滚，可以撤销自动生成的代码
+// 3. 历史记录：记录代码生成历史，便于管理和追溯
+// 4. 好处：支持回滚、可追溯、支持超时控制
+
 import (
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	common "github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
@@ -9,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// AutoCodeHistoryApi 自动代码历史API结构体
 type AutoCodeHistoryApi struct{}
 
 // First

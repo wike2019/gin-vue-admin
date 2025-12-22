@@ -5,6 +5,7 @@ import (
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 )
 
+// SysDictionaryDetailSearch System dictionary detail search request structure
 type SysDictionaryDetailSearch struct {
 	system.SysDictionaryDetail
 	request.PageInfo

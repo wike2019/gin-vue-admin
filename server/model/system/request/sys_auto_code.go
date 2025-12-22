@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// AutoCode Auto code generation request structure
 type AutoCode struct {
 	Package             string                 `json:"package"`
 	PackageT            string                 `json:"-"`
@@ -49,6 +50,7 @@ type AutoCode struct {
 	HasExcel            bool                   `json:"-"`
 }
 
+// DataSource Data source structure for auto code generation
 type DataSource struct {
 	DBName       string `json:"dbName"`
 	Table        string `json:"table"`
@@ -248,6 +250,7 @@ type AutoCodeField struct {
 	FieldIndexType  string      `json:"fieldIndexType"`  // 索引类型
 }
 
+// AutoFunc Auto code function structure
 type AutoFunc struct {
 	Package         string `json:"package"`
 	FuncName        string `json:"funcName"`        // 方法名称
@@ -269,17 +272,20 @@ type AutoFunc struct {
 	JsFunc          string `json:"jsFunc"`          // JS方法
 }
 
+// InitMenu Initialize menu structure
 type InitMenu struct {
 	PlugName   string `json:"plugName"`
 	ParentMenu string `json:"parentMenu"`
 	Menus      []uint `json:"menus"`
 }
 
+// InitApi Initialize API structure
 type InitApi struct {
 	PlugName string `json:"plugName"`
 	APIs     []uint `json:"apis"`
 }
 
+// LLMAutoCode LLM auto code generation structure
 type LLMAutoCode struct {
 	Prompt string `json:"prompt" form:"prompt" gorm:"column:prompt;comment:提示语;type:text;"` //提示语
 	Mode   string `json:"mode" form:"mode" gorm:"column:mode;comment:模式;type:text;"`        //模式

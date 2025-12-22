@@ -1,5 +1,6 @@
 package request
 
+// AutoMcpTool Auto MCP tool structure
 type AutoMcpTool struct {
 	Name        string `json:"name" form:"name" binding:"required"`
 	Description string `json:"description" form:"description" binding:"required"`
