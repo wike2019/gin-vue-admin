@@ -67,6 +67,7 @@ func Viper() *viper.Viper {
 		fmt.Println("config file changed:", e.Name)
 		// 重新解析配置文件到全局配置结构体
 		// 注意：这里只打印错误，不 panic，保证服务的稳定性
+		// wike补充  这里虽然重新加载了结构体 但是数据库 redis 这些三方组建是重启后才会重新连接的 所以这里只是重新加载了结构体 并没有重新连接数据库 redis 这些三方组建
 		if err = v.Unmarshal(&global.GVA_CONFIG); err != nil {
 			fmt.Println(err)
 		}

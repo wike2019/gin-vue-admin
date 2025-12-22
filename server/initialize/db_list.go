@@ -100,6 +100,7 @@ func DBList() {
 }
 
 func CloseDBList() {
+
 	for _, item := range global.GVA_DBList {
 		db, _ := item.DB()
 		err := db.Close()

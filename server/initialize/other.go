@@ -80,7 +80,6 @@ func OtherInit() {
 
 	/**
 		有个疑问 如果 defer file.Close() 写在这里是不是更好
-
 	**/
 
 	// 为什么使用 err == nil 判断？
