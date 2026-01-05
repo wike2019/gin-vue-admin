@@ -1,6 +1,7 @@
 package internal
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -235,10 +236,13 @@ func (c *Cutter) Write(bytes []byte) (n int, err error) {
 	// 2. 清理操作与写入操作同步，保证一致性
 	// 3. 如果应用长时间不写入日志，也不会浪费资源清理
 	// 注意：这里可能会有性能开销，但日志写入频率通常不高，影响可接受
-	err = removeNDaysFolders(c.director, c.retentionDay)
-	if err != nil {
-		return 0, err
-	}
+	defer func() {
+		err = removeNDaysFolders(c.director, c.retentionDay)
+		if err != nil {
+			fmt.Println("清理过期日志失败", err)
+		}
+	}()
+
 	// 打开文件，使用追加模式（O_APPEND）和只写模式（O_WRONLY）
 	// O_CREATE: 如果文件不存在则创建
 	// O_APPEND: 追加写入，文件指针自动定位到文件末尾

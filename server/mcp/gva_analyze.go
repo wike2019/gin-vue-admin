@@ -222,6 +222,9 @@ func (g *GVAAnalyzer) performAnalysis(ctx context.Context, req AnalyzeRequest) (
 		}
 	}
 
+	// 步骤4：收集空包相关的历史记录ID（已在步骤3中完成，此处为逻辑上的步骤4）
+	// 说明：在步骤3的循环中已经收集了emptyPackageHistoryIDs，这里开始处理这些历史记录
+
 	// 步骤5：清理空包相关的历史记录和脏历史记录
 	// 设计思路：先收集需要删除的历史记录ID，然后批量删除
 	// 好处：
@@ -296,8 +299,14 @@ func (g *GVAAnalyzer) performAnalysis(ctx context.Context, req AnalyzeRequest) (
 		}
 	}
 
-	// 8. 构建分析结果消息
+	// 步骤8：构建分析结果消息
+	// 设计思路：使用strings.Builder高效构建字符串，先构建清理信息，再构建分析结果
+	// 为什么使用strings.Builder：避免多次字符串拼接产生的临时对象，提高性能
+	// 好处：内存效率高，适合构建较长的字符串
 	var analysisMessage strings.Builder
+	// 如果有清理操作，先记录清理信息
+	// 为什么先记录清理信息：让用户知道系统自动执行了哪些清理操作
+	// 好处：提高透明度，让用户了解系统状态变化
 	if len(cleanupInfo.DeletedPackages) > 0 || len(cleanupInfo.DeletedModules) > 0 {
 		analysisMessage.WriteString("**系统清理完成**\n\n")
 		if len(cleanupInfo.DeletedPackages) > 0 {
@@ -310,11 +319,20 @@ func (g *GVAAnalyzer) performAnalysis(ctx context.Context, req AnalyzeRequest) (
 		cleanupInfo.CleanupMessage = analysisMessage.String()
 	}
 
+	// 构建分析结果统计信息
+	// 为什么需要统计信息：为AI提供系统状态的概览，帮助AI做出决策
+	// 好处：让AI了解当前系统有多少可用资源，避免重复创建
 	analysisMessage.WriteString(" **分析结果**\n\n")
 	analysisMessage.WriteString(fmt.Sprintf("- **现有包数量**: %d\n", len(validPackages)))
 	analysisMessage.WriteString(fmt.Sprintf("- **预设计模块数量**: %d\n\n", len(filteredModules)))
 
-	// 9. 转换包信息
+	// 步骤9：转换包信息为响应格式
+	// 设计思路：将数据库模型转换为API响应模型，只包含必要字段
+	// 为什么需要转换：分离数据层和API层，避免暴露内部实现细节
+	// 好处：
+	// 1. 解耦：数据库模型变化不影响API接口
+	// 2. 安全性：只返回必要信息，避免泄露敏感数据
+	// 3. 灵活性：可以添加计算字段或格式化数据
 	existingPackages := make([]PackageInfo, len(validPackages))
 	for i, pkg := range validPackages {
 		existingPackages[i] = PackageInfo{
@@ -323,22 +341,36 @@ func (g *GVAAnalyzer) performAnalysis(ctx context.Context, req AnalyzeRequest) (
 			Label:       pkg.Label,
 			Desc:        pkg.Desc,
 			Module:      pkg.Module,
-			IsEmpty:     false, // 已经过滤掉空包
+			IsEmpty:     false, // 已经过滤掉空包，所以都是false
 		}
 	}
 
-	dictionaries := []DictionaryPre{} // 这里可以根据需要填充字典信息
+	// 步骤9.1：获取字典信息
+	// 为什么需要字典信息：字典是系统的基础数据，AI可能需要参考字典结构来创建新功能
+	// 好处：为AI提供系统字典结构，帮助AI创建符合系统规范的字典
+	dictionaries := []DictionaryPre{} // 初始化字典列表
+	// 只查询未删除的字典（deleted_at is null表示软删除标记）
+	// 为什么使用软删除：保留历史数据，便于恢复和审计
 	err = global.GVA_DB.Table("sys_dictionaries").Find(&dictionaries, "deleted_at is null").Error
 	if err != nil {
+		// 使用Warn并设置空列表：字典获取失败不影响主流程
+		// 好处：提高容错性，即使字典获取失败也能返回其他分析结果
 		global.GVA_LOG.Warn(fmt.Sprintf("获取字典信息失败: %v", err))
 		dictionaries = []DictionaryPre{} // 设置为空列表，不影响主流程
 	}
 
-	// 10. 构建响应
+	// 步骤10：构建最终响应
+	// 设计思路：将所有分析结果组装成统一的响应结构
+	// 为什么需要统一响应：提供结构化的数据，便于AI解析和使用
+	// 好处：
+	// 1. 结构化：数据组织清晰，便于处理
+	// 2. 完整性：包含所有必要的分析结果
+	// 3. 可扩展性：新增字段不影响现有逻辑
 	response := &AnalyzeResponse{
-		ExistingPackages:   existingPackages,
-		PredesignedModules: filteredModules,
-		Dictionaries:       dictionaries,
+		ExistingPackages:   existingPackages, // 现有有效包列表
+		PredesignedModules: filteredModules,  // 预设计模块列表（已过滤）
+		Dictionaries:       dictionaries,     // 系统字典列表
+		CleanupInfo:        cleanupInfo,      // 清理信息（如果有清理操作）
 	}
 
 	return response, nil

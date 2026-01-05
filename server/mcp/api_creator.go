@@ -14,7 +14,7 @@ import (
 )
 
 // 注册工具到MCP工具注册表
-// 
+//
 // 设计原理：
 // - 利用Go的包初始化机制，在包导入时自动注册工具
 // - 无需手动调用，简化工具的使用和集成
@@ -292,12 +292,12 @@ func (a *ApiCreator) Handle(ctx context.Context, request mcp.CallToolRequest) (*
 	// - totalCount/successCount/failedCount: 统计数据，便于程序化处理
 	// - details: 每个API的详细结果，便于定位问题
 	result := map[string]interface{}{
-		"success":      successCount > 0,                    // 至少有一个成功即认为整体成功
-		"message":      resultMessage,                       // 摘要消息
-		"totalCount":   len(apis),                          // 总数
-		"successCount": successCount,                       // 成功数
-		"failedCount":  len(apis) - successCount,           // 失败数
-		"details":      responses,                          // 详细结果列表
+		"success":      successCount > 0,         // 至少有一个成功即认为整体成功
+		"message":      resultMessage,            // 摘要消息
+		"totalCount":   len(apis),                // 总数
+		"successCount": successCount,             // 成功数
+		"failedCount":  len(apis) - successCount, // 失败数
+		"details":      responses,                // 详细结果列表
 	}
 
 	// JSON序列化：使用Indent格式化，提高可读性
