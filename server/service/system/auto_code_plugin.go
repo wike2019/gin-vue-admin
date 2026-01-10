@@ -80,12 +80,21 @@ func (s *autoCodePlugin) Install(file *multipart.FileHeader) (web, server int, e
 	if err != nil {
 		return -1, -1, err
 	}
-	// 延迟关闭文件，确保数据写入磁盘
-	defer out.Close()
 
 	// 将上传的文件内容复制到临时文件
 	// 使用io.Copy的好处：高效处理大文件，自动管理缓冲区，避免内存溢出
 	_, err = io.Copy(out, src)
+	if err != nil {
+		out.Close()
+		return -1, -1, err
+	}
+
+	// 立即关闭文件，确保数据写入磁盘并释放文件句柄
+	// 必须在解压前关闭，否则在Windows系统上会导致文件被占用无法解压
+	err = out.Close()
+	if err != nil {
+		return -1, -1, err
+	}
 
 	// 解压zip文件到临时目录
 	// 解压后获取所有文件路径列表，用于后续分析插件结构
