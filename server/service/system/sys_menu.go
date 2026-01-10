@@ -2,11 +2,12 @@ package system
 
 import (
 	"errors"
+	"strconv"
+
 	"github.com/flipped-aurora/gin-vue-admin/server/global"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/common/request"
 	"github.com/flipped-aurora/gin-vue-admin/server/model/system"
 	"gorm.io/gorm"
-	"strconv"
 )
 
 //@author: [piexlmax](https://github.com/piexlmax)
@@ -301,7 +302,10 @@ func (menuService *MenuService) GetMenuAuthority(info *request.GetAuthorityId) (
 		MenuIds = append(MenuIds, SysAuthorityMenus[i].MenuId)
 	}
 
-	err = global.GVA_DB.Where("id in (?) ", MenuIds).Order("sort").Find(&baseMenu).Error
+	// 第三步：批量查询菜单信息，按 sort 排序
+	// 使用 IN 查询，避免 N+1 问题
+	// Preload("Parameters")：预加载菜单参数，避免后续单独查询（N+1 优化）
+	err = global.GVA_DB.Where("id in (?) ", MenuIds).Order("sort").Preload("Parameters").Find(&baseMenu).Error
 
 	for i := range baseMenu {
 		menus = append(menus, system.SysMenu{
